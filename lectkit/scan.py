@@ -19,6 +19,9 @@ from lectkit.tiers import Register
 
 MIN_CHARS = 3
 MAX_TOKENS = 4      # hidden values and ids up to this many words are also found inside lines
+# Only items from structured data are looked for inside lines. A prose line or paragraph is
+# matched whole or by passage: the words of a heading aren't lexical items.
+STRUCTURED_KINDS = ("id", "key", "scalar")
 ACCEPT_FILE = f"{KIT_DIR}/accepted_matches.yaml"
 REVIEW_FILE = f"{KIT_DIR}/reviewed_findings.yaml"
 KEY_FILE = f"{KIT_DIR}/scan_key"   # a secret of the scanning tier; never leaves its store
@@ -73,13 +76,16 @@ def scan_key(store: Path) -> bytes:
     by anyone holding the report, which would confirm the guess."""
     f = store / KEY_FILE
     if f.is_file():
-        key = f.read_bytes()
+        try:
+            key = bytes.fromhex(f.read_text(encoding="ascii").strip())
+        except (UnicodeDecodeError, ValueError):
+            key = b""
         if len(key) != 32:
             raise ScanError(f"{KEY_FILE} is damaged; delete it and review findings again")
         return key
     f.parent.mkdir(parents=True, exist_ok=True)
     key = secrets.token_bytes(32)
-    f.write_bytes(key)
+    f.write_text(key.hex() + "\n", encoding="ascii")     # text, so any reader of the store can read it
     return key
 
 
@@ -205,11 +211,14 @@ def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = N
         rep.scanned.append(low)
         hq = ",".join("?" * len(hidden))
         values: dict[str, set[str]] = {}
-        for norm, tier in db.con.execute(
-                f"SELECT norm, tier FROM model_value WHERE tier IN ({hq})", hidden):
+        items: dict[str, set[str]] = {}      # structured items, also found inside lines
+        for norm, tier, kind in db.con.execute(
+                f"SELECT norm, tier, kind FROM model_value WHERE tier IN ({hq})", hidden):
             if len(norm) >= MIN_CHARS:
                 values.setdefault(_key(norm), set()).add(tier)
-        longest = max((len(k.split()) for k in values if len(k.split()) <= MAX_TOKENS), default=0)
+                if kind in STRUCTURED_KINDS:
+                    items.setdefault(_key(norm), set()).add(tier)
+        longest = max((len(k.split()) for k in items if len(k.split()) <= MAX_TOKENS), default=0)
         hidden_passages: dict[str, set[str]] = {}
         for norm, tier in db.con.execute(
                 f"SELECT norm, tier FROM model_passage WHERE tier IN ({hq})", hidden):
@@ -239,8 +248,8 @@ def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = N
             for n in range(1, longest + 1):
                 for i in range(len(w) - n + 1):
                     g = " ".join(w[i:i + n])
-                    if g != k and g in values and len(g) >= MIN_CHARS:
-                        hit(rel, line, "token", values[g], g)
+                    if g != k and g in items and len(g) >= MIN_CHARS:
+                        hit(rel, line, "token", items[g], g)
             streams.setdefault(rel, []).extend((x, line) for x in w)
         for rel, stream in streams.items():
             for i in range(len(stream) - PASSAGE_WORDS + 1):

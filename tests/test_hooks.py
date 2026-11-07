@@ -220,3 +220,13 @@ def test_an_unreadable_update_line_refuses(tmp_path):
     code = lectkit_hook.main(["pre-push", "--register", str(reg), "--tier", "fx-open",
                               "--repo", str(low), "origin", "x"], stdin=io.StringIO("garbage\n"))
     assert code == 1
+
+
+def test_a_tier_with_nothing_above_it_commits(tmp_path):
+    reg, _ = setup(tmp_path)
+    top = tmp_path / "stores" / "fx-a"
+    import install_hooks
+    assert install_hooks.main(["--register", str(reg), "--tier", "fx-a", "--repo", str(top)]) == 0
+    write(top, "fx-a-notes.md", "glossqy\n")
+    r = commit(top)
+    assert r.returncode == 0, r.stderr

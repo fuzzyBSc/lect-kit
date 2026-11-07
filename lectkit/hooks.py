@@ -67,6 +67,12 @@ def _report(res: proposal.ProposalResult, say: Callable[[str], None], what: str)
 def pre_commit(register_path: Path, low: str, repo: Path,
                say: Callable[[str], None] = print) -> int:
     try:
+        reg = tiers.load(register_path)
+        if reg.problems or low not in reg.tiers:
+            say("[REFUSED] the register has problems or doesn't name this tier")
+            return 1
+        if not proposal.higher_tiers(reg, low):
+            return 0                     # no tier sits above this one: nothing can be hidden from it
         tree = proposal.staged_tree(repo)
         if not evidence_problems(register_path, low, repo, tree):
             return 0

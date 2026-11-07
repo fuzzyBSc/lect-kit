@@ -246,8 +246,10 @@ queries that.
     is what a scanner reports against.
   - `model_value`: every value, key and id as the composed model holds it (`Layered
     files`), with the tier that added it and the line where that tier's file writes it. Layered YAML files are composed, so a value a higher tier
-    only restates keeps its lower tier. Other text files take their store's tier, line by
-    line and paragraph by paragraph, so a passage that wraps across lines still matches.
+    only restates keeps its lower tier. Other text files are layered too, line by line and
+    paragraph by paragraph: copies at one path are one file, lowest tier first, and a line
+    a lower copy already holds keeps that lower tier. Paragraphs let a passage that wraps
+    across lines still match.
     Comments are read outside the spans of scalars, so a `#` inside a quoted or block
     scalar isn't taken for one.
   - `model_passage` holds every run of 5 consecutive normalised words in a model value,
@@ -273,6 +275,9 @@ queries that.
   leak. A value the higher tier only restates from below isn't its material, so it never
   matches. An ordinary word that both tiers hold on their own does match, and a person
   decides it, as with any spelling shared by an open and a restricted lexeme.
+- **What a store holds.** In a store that is a git checkout of its own, the store's files
+  are the ones git tracks plus new ones it doesn't ignore. Ignored files, such as editor
+  folders, caches and build output, aren't part of it. Elsewhere every file is read.
 - **Files.** A symbolic link anywhere in a store stops the build, and so does a YAML file
   with an alias or more than one document. A file that isn't UTF-8
   text stops it too, unless it's an image, audio or video file, which is counted and
@@ -294,8 +299,10 @@ store in it for material that store's readers mustn't see.
   YAML file in L's store is read by its keys, scalars and comments, and any other file
   by its lines. A line **matches** when:
   - its whole text equals hidden material (`value`);
-  - a run of up to 4 words in it equals a hidden value, key or id, such as an id inside a
-    sentence (`token`); or
+  - a run of up to 4 words in it equals a hidden value, key or id from structured data,
+    such as an id inside a sentence (`token`). Prose lines and paragraphs aren't looked for
+    inside other lines, because the words of a heading or a note aren't lexical items.
+    They match whole or by passage; or
   - a five-word passage equals a hidden one, counting words across line ends, so a
     passage that wraps still matches. The finding is on the line where the passage
     starts (`passage`).
@@ -328,8 +335,9 @@ store in it for material that store's readers mustn't see.
   - the line is copied again.
   The same text in another file isn't covered.
 - **Ids and review digests are keyed.** They're computed with a secret kept in the
-  scanning tier's store (`.lectkit/scan_key`), made on first use and never read into a
-  database. Without that key, someone holding a report couldn't confirm a guess at hidden
+  scanning tier's store (`.lectkit/scan_key`, as hex text), made on first use and never
+  read into that tier's own database. Tiers above it can read it, as they can read the rest
+  of its store. Without that key, someone holding a report couldn't confirm a guess at hidden
   text by recomputing an id. The review file and the key are as restricted as the
   scanning tier.
 - **What a review proves.** `by: human:...` records who is responsible. It doesn't
@@ -396,7 +404,9 @@ screens what L would hold after the commit.
 Hooks run locally, in each store's own checkout, and never on a server. Whoever runs them
 holds the classified stores they need.
 
-- **pre-commit** refuses unless there is current evidence for the staged tree. If there
+- **pre-commit** passes at once in a store whose tier no other tier sees (nothing there
+  can be hidden from a tier above it). Otherwise it refuses unless there is current
+  evidence for the staged tree. If there
   isn't, it runs the proposal scan, which writes evidence on a clean result, and then
   checks again. Another process can still change the index after the hook returns and
   before git writes the commit; the push hook screens every commit again, so that

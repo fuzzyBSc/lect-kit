@@ -10,6 +10,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import subprocess
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,7 +65,25 @@ def store_files(tier: str, store: Path, skip_kit: bool = False) -> Iterator[Path
     """Every file in a store, outside .git. A symbolic link anywhere is an error: it could
     pull in material from outside the store, or hide material the walk wouldn't reach.
     `skip_kit` leaves out the store's .lectkit/ folder: only the scanning tier's own kit
-    folder is skipped, so a lower store can't hide material there."""
+    folder is skipped, so a lower store can't hide material there.
+
+    In a store that is a git checkout of its own, the store's files are the ones git
+    tracks plus new ones it doesn't ignore: ignored files (editor folders, caches, build
+    output) aren't part of the store. Elsewhere every file is read."""
+    listed = _git_listed(store)
+    if listed is not None:
+        for rel in listed:
+            p = store / rel
+            parts = Path(rel).parts
+            if skip_kit and parts and parts[0] == KIT_DIR:
+                continue
+            for i in range(1, len(parts) + 1):
+                if (store.joinpath(*parts[:i])).is_symlink():
+                    raise BuildError(f"{tier}: {Path(*parts[:i]).as_posix()}: "
+                                     f"symbolic links aren't allowed in a store")
+            if p.is_file():
+                yield p
+        return
     for root, dirs, files in os.walk(store, followlinks=False):
         rp = Path(root)
         if rp == store:
@@ -76,6 +95,21 @@ def store_files(tier: str, store: Path, skip_kit: bool = False) -> Iterator[Path
         dirs.sort()
         for name in sorted(files):
             yield rp / name
+
+
+def _git_listed(store: Path) -> list[str] | None:
+    """Tracked and untracked-but-not-ignored paths, if `store` is the top of its own
+    git checkout; None otherwise."""
+    top = subprocess.run(["git", "-C", str(store), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True)
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != store.resolve():
+        return None
+    r = subprocess.run(["git", "-C", str(store), "ls-files", "-z", "--cached", "--others",
+                        "--exclude-standard"], capture_output=True)
+    if r.returncode != 0:
+        raise BuildError("git ls-files failed in a store")
+    return sorted({x.decode("utf-8", "surrogateescape")
+                   for x in r.stdout.split(chr(0).encode()) if x})
 
 
 def store_digest(tier: str, store: Path, skip_kit: bool = False) -> str:
@@ -196,23 +230,37 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
         by_tier = texts[rel]
         is_yaml = Path(rel).suffix.lower() in YAML_SUFFIXES
         docs, line_of = {}, {}
-        for t, text in by_tier.items():
+        # Files at one path are one file in layers, lowest tier first. A line, paragraph or
+        # comment a lower tier's copy already holds is restated, so it keeps that tier.
+        held: set[tuple[str, str]] = set()
+
+        def added(kind, text):
+            k = (kind, normalise(text))
+            if k in held:
+                return False
+            held.add(k)
+            return True
+
+        for t in [x for x in order if x in by_tier]:
+            text = by_tier[t]
             lines = text.splitlines()
             for n, line in enumerate(lines, 1):
                 if line.strip():
                     source(t, rel, n, "line", line)
             if not is_yaml:
                 for n, line in enumerate(lines, 1):
-                    if line.strip():
+                    if line.strip() and added("line", line):
                         model(rel, f"#line{n}", "line", line, t, n)
                 for start, para in _paragraphs(lines):
-                    model(rel, f"#para{start}", "paragraph", para, t, start)
+                    if added("paragraph", para):
+                        model(rel, f"#para{start}", "paragraph", para, t, start)
                 continue
             try:
                 items = yamlio.source_items(text)
                 for n, c in yamlio.comments(text):
                     source(t, rel, n, "comment", c)
-                    model(rel, f"#line{n}", "comment", c, t, n)
+                    if added("comment", c):
+                        model(rel, f"#line{n}", "comment", c, t, n)
                 docs[t] = yamlio.load(text)
             except yamlio.YamlError as e:
                 what = "holds more than one YAML document" if "more than one" in str(e) else \

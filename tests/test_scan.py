@@ -314,7 +314,7 @@ def test_a_copied_line_is_a_new_finding(tmp_path):
 def test_ids_and_review_digests_are_keyed_by_the_scanning_tier(tmp_path):
     rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
     f = find(rep, "fx-open", "fx-notes.md", 1)
-    key = (store / scan.KEY_FILE).read_bytes()
+    key = bytes.fromhex((store / scan.KEY_FILE).read_text(encoding="ascii").strip())
     assert len(key) == 32
     # Someone without the key can't reproduce the id from the line and a guessed word.
     guess = scan._digest(f.tier, f.rel, f.entry, str(f.nth), scan._digest("stemb s1"))[:12]
@@ -331,3 +331,12 @@ def test_recording_a_review_keeps_the_file_valid(tmp_path):
     review(store, find(rep, "fx-open", "fx-notes.md", 1))
     review(store, find(rep, "fx-open", "fx-notes.md", 2))
     assert len(scan.load_reviews(path, reg)) == 2
+
+
+def test_prose_lines_arent_looked_for_inside_lines(tmp_path):
+    files = with_files(**{"fx-c": {"fx-c-notes.md": "fxheadq rules\n"},
+                          "fx-open": {"fx-notes.md": "the fxheadq rules apply here\n"}})
+    rep = run(tmp_path, files)
+    assert ("fx-open", "fx-notes.md", 1) not in where(rep)
+    files["fx-open"]["fx-notes.md"] = "fxheadq rules\n"           # the whole line still matches
+    assert ("fx-open", "fx-notes.md", 1) in where(run(tmp_path, files))

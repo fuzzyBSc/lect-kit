@@ -291,3 +291,32 @@ def test_opening_a_database_checks_its_tiers(tmp_path, tamper):
     con.close()
     with pytest.raises(adb.BuildError):
         adb.AudienceDB(out)
+
+
+def test_a_git_store_is_read_by_what_git_holds(tmp_path):
+    import subprocess
+    reg, _ = setup(tmp_path)
+    store = tmp_path / "stores" / "fx-c"
+    subprocess.run(["git", "init", "-q", str(store)], check=True, capture_output=True)
+    (store / ".gitignore").write_text("fx-cache/\n", encoding="utf-8")
+    (store / "fx-cache").mkdir()
+    (store / "fx-cache" / "fx-junk.bin").write_bytes(b"\xff\xfe\x00\x80")   # ignored: not read
+    (store / "fx-new.md").write_text("fxnewq untracked but not ignored\n", encoding="utf-8")
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)                       # the ignored binary doesn't stop it
+    with adb.AudienceDB(out) as db:
+        assert db.model_tiers("fxnewq untracked but not ignored") == {"fx-c"}
+        assert db.con.execute("SELECT count(*) FROM source_value WHERE rel LIKE 'fx-cache/%'"
+                              ).fetchone() == (0,)
+
+
+def test_a_text_file_is_layered_line_by_line(tmp_path):
+    files = {**FILES,
+             "fx-open": {**FILES["fx-open"], "fx-shared.md": "one shared line here\n"},
+             "fx-c": {**FILES["fx-c"], "fx-shared.md": "one shared line here\nfxonlyc line\n"}}
+    reg, _ = setup(tmp_path, files)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        assert db.model_tiers("one shared line here") == {"fx-open"}     # restated by fx-c
+        assert db.model_tiers("fxonlyc line") == {"fx-c"}
