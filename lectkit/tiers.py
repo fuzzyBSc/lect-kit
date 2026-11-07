@@ -28,6 +28,7 @@ class Tier:
     store_path: Path | None
     remote: str
     classifiers: tuple[str, ...] = ()
+    terms: tuple[Path, ...] = ()    # the tier's term registers (deny lists), read at run time
 
 
 @dataclass
@@ -117,9 +118,14 @@ def load(path: str | Path) -> Register:
         if not isinstance(classifiers, list):
             reg.problems.append(f"{tid}: classifiers must be a list")
             classifiers = []
+        terms = row.get("terms", [])
+        if not isinstance(terms, list):
+            reg.problems.append(f"{tid}: terms must be a list of term-register files")
+            terms = []
+        term_paths = tuple((path.parent / str(t)).resolve() for t in terms)
         raw_sees[tid] = [str(s) for s in sees]
         reg.tiers[tid] = Tier(tid, str(name or ""), tuple(str(s) for s in sees), store_path,
-                              remote, tuple(str(c) for c in classifiers))
+                              remote, tuple(str(c) for c in classifiers), term_paths)
 
     for tid, sees in raw_sees.items():
         if tid in sees:

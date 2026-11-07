@@ -32,6 +32,10 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lectkit.denylist import (EDGE_L, EDGE_R, SKIP_SUFFIXES, load_deny, nfc,  # noqa: E402,F401
+                              term_regex)
+
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()
 
@@ -51,84 +55,6 @@ def tracked_files() -> list[Path]:
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout
     return [ROOT / p for p in out.splitlines() if p]
-
-
-TERM_KEYS = {"term", "terms", "form", "forms", "word", "words", "headword", "lemma"}
-REGEX_KEYS = {"pattern", "patterns", "regex"}
-# Alternatives matched as whole words, each read as a regex fragment (escaped if invalid).
-VARIANT_KEYS = {"variant", "variants"}
-SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".pyc"}
-# Word edges that also hold where a term starts or ends with punctuation.
-EDGE_L, EDGE_R = r"(?<!\w)", r"(?!\w)"
-
-
-def nfc(s: str) -> str:
-    return unicodedata.normalize("NFC", s)
-
-
-def _structured(path: Path, text: str):
-    """The parsed deny file, or None when it is a plain list of terms.
-
-    YAML is read with every scalar as a string, so values such as `no`, `on` or `1234`
-    stay the text that was written instead of becoming booleans or numbers."""
-    try:
-        return json.loads(text)
-    except ValueError:
-        pass
-    if path.suffix.lower() in {".yaml", ".yml"}:
-        try:
-            return yaml.load(text, Loader=yaml.BaseLoader)
-        except yaml.YAMLError:
-            raise SystemExit(f"[ERROR] cannot parse deny file {path.name}")
-    return None
-
-
-def _compile(src: str) -> re.Pattern:
-    return re.compile(nfc(src), re.I)
-
-
-def load_deny(path: Path) -> tuple[set[str], list[re.Pattern]]:
-    """Terms and regexes from a deny file. In JSON or YAML, only values under term,
-    variant or pattern keys count, so labels, notes and flags are not mistaken for terms."""
-    text = path.read_text(encoding="utf-8-sig")
-    terms: set[str] = set()
-    regexes: list[re.Pattern] = []
-    data = _structured(path, text)
-    if data is not None:
-        def walk(x, key=None):
-            if isinstance(x, dict):
-                for k, v in x.items():
-                    walk(v, str(k).lower())
-            elif isinstance(x, list):
-                for v in x:
-                    walk(v, key)
-            elif x is not None:
-                x = str(x)
-                if key in REGEX_KEYS:
-                    try:
-                        regexes.append(_compile(x))
-                    except re.error:
-                        regexes.append(_compile(re.escape(x)))
-                elif key in VARIANT_KEYS:
-                    try:
-                        regexes.append(_compile(rf"{EDGE_L}(?:{x}){EDGE_R}"))
-                    except re.error:
-                        regexes.append(_compile(EDGE_L + re.escape(x) + EDGE_R))
-                elif key in TERM_KEYS or key is None:
-                    terms.add(x)
-        walk(data)
-    else:
-        for line in text.splitlines():
-            line = line.split("#", 1)[0].strip()
-            if line:
-                terms.add(line)
-    terms = {nfc(t.strip()).lower() for t in terms if len(re.sub(r"\W", "", t)) >= 3}
-    return terms, regexes
-
-
-def term_regex(term: str) -> re.Pattern:
-    """A literal term matched as a whole word, whatever punctuation it holds."""
-    return _compile(EDGE_L + re.escape(term) + EDGE_R)
 
 
 def read_lines(f: Path) -> list[str] | None:

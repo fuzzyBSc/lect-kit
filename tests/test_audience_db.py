@@ -320,3 +320,36 @@ def test_a_text_file_is_layered_line_by_line(tmp_path):
     with adb.AudienceDB(out) as db:
         assert db.model_tiers("one shared line here") == {"fx-open"}     # restated by fx-c
         assert db.model_tiers("fxonlyc line") == {"fx-c"}
+
+
+
+@pytest.mark.parametrize("pat, rel, hit", [
+    ("README.md", "README.md", True),
+    ("README.md", "paradigm/README.md", True),          # a bare name matches at any depth
+    ("/README.md", "README.md", True),
+    ("/README.md", "paradigm/README.md", False),        # a leading slash anchors
+    ("**/README.md", "notREADME.md", False),
+    ("**/README.md", "a/b/README.md", True),
+    ("**/README.md", "README.md", True),
+    ("a/**/b.md", "a/xb.md", False),
+    ("a/**/b.md", "a/b.md", True),
+    ("a/**/b.md", "a/x/y/b.md", True),
+    ("docs/", "docs/x/y.md", True),
+    ("docs/", "docsx/y.md", False),
+    ("a/**", "a/x/y.md", True),
+    ("*.pyc", "a/b.pyc", True),
+    ("?.md", "ab.md", False),
+    ("READ*.md", "sub/READX.md", True),
+])
+def test_exclusion_patterns(pat, rel, hit):
+    assert adb.excluded([pat], rel) is hit
+
+
+@pytest.mark.parametrize("line", ["!keep.md", "docs/a#b", "[ab].md", "a\\b.md"])
+def test_unsupported_exclusion_syntax_is_an_error(line):
+    with pytest.raises(adb.BuildError, match="unsupported"):
+        adb.parse_patterns(line + "\n")
+
+
+def test_exclusion_comments_and_blanks():
+    assert adb.parse_patterns("# a comment\n\n/README.md\n") == ["/README.md"]

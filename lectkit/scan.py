@@ -281,12 +281,7 @@ def scan(db: AudienceDB, reg: Register,
         for norm, tier in db.con.execute(
                 f"SELECT norm, tier FROM model_passage WHERE tier IN ({hq})", hidden):
             hidden_passages.setdefault(norm, set()).add(tier)
-        # Text several hidden tiers hold belongs to the lowest of them: a tier that sees
-        # another holder isn't the one it was hidden for, and that holder's decision is the
-        # one that counts. Peers, which don't see each other, each keep it.
-        for table in (values, items, hidden_passages):
-            for k, ts in table.items():
-                table[k] = {t for t in ts if not any(o in reg.tiers[t].sees for o in ts)}
+
 
         hits: dict[tuple[str, int], set[tuple[str, str, str]]] = {}
         spans: dict[tuple[str, int], set[int]] = {}

@@ -230,3 +230,54 @@ def test_a_tier_with_nothing_above_it_commits(tmp_path):
     write(top, "fx-a-notes.md", "glossqy\n")
     r = commit(top)
     assert r.returncode == 0, r.stderr
+
+
+def test_a_registered_term_in_an_excluded_file_refuses_the_commit(tmp_path):
+    reg, _ = setup(tmp_path)
+    terms = tmp_path / "fx-a-terms.yaml"
+    terms.write_text("entries:\n- {id: t1, label: x, variants: [fxguardq]}\n", encoding="utf-8")
+    reg.write_text(reg.read_text(encoding="utf-8").replace(
+        "store: {path: stores/fx-a, remote: none}}",
+        "store: {path: stores/fx-a, remote: none}, terms: [fx-a-terms.yaml]}"), encoding="utf-8")
+    top = tmp_path / "stores" / "fx-a"
+    write(top, ".lectkit/not_material.txt", "/README.md\n")     # staged, as the guard reads it
+    import install_hooks
+    assert install_hooks.main(["--register", str(reg), "--tier", "fx-a", "--repo", str(top)]) == 0
+    write(top, "README.md", "about fxguardq here\n")
+    r = commit(top)
+    assert r.returncode != 0 and "README.md:1: a registered term" in r.stderr
+    assert "fxguardq" not in r.stderr
+    write(top, "README.md", "a plain readme\n")
+    write(top, "notes/fx-a-notes.md", "about fxguardq here\n")     # material: allowed here
+    assert commit(top).returncode == 0
+
+
+
+def test_the_guard_reads_the_staged_exclusion_list(tmp_path):
+    reg, _ = setup(tmp_path)
+    terms = tmp_path / "fx-a-terms.yaml"
+    terms.write_text("entries:\n- {id: t1, label: x, variants: [fxguardq]}\n", encoding="utf-8")
+    reg.write_text(reg.read_text(encoding="utf-8").replace(
+        "store: {path: stores/fx-a, remote: none}}",
+        "store: {path: stores/fx-a, remote: none}, terms: [fx-a-terms.yaml]}"), encoding="utf-8")
+    top = tmp_path / "stores" / "fx-a"
+    import install_hooks
+    assert install_hooks.main(["--register", str(reg), "--tier", "fx-a", "--repo", str(top)]) == 0
+    write(top, ".lectkit/not_material.txt", "/docs/\n")          # staged: a folder pattern
+    write(top, "docs/fx-a-guide.md", "about fxguardq\n")
+    (top / ".lectkit" / "not_material.txt").write_text("# nothing\n", encoding="utf-8")  # working copy
+    r = commit(top)
+    assert r.returncode != 0 and "docs/fx-a-guide.md:1: a registered term" in r.stderr
+
+
+def test_the_guard_refuses_when_a_term_register_is_missing(tmp_path):
+    reg, _ = setup(tmp_path)
+    reg.write_text(reg.read_text(encoding="utf-8").replace(
+        "store: {path: stores/fx-a, remote: none}}",
+        "store: {path: stores/fx-a, remote: none}, terms: [fx-missing.yaml]}"), encoding="utf-8")
+    top = tmp_path / "stores" / "fx-a"
+    import install_hooks
+    assert install_hooks.main(["--register", str(reg), "--tier", "fx-a", "--repo", str(top)]) == 0
+    write(top, "fx-a-notes.md", "fine\n")
+    r = commit(top)
+    assert r.returncode != 0 and "term register" in r.stderr

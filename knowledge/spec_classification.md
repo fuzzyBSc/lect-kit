@@ -59,6 +59,9 @@ tiers:
   A tier with `remote: none` is kept only on machines its readers hold. Its store can't
   have a git remote, and the check fails if it has one.
 - `classifiers` is optional: the actors who may classify into the tier.
+- `terms` is optional: the tier's term registers (deny lists), relative to the register
+  file and read at run time. The hooks use them to guard the files the tier excludes from
+  its material.
 - **Sees is written out in full.** If `jp-b` sees `jp-a` and `jp-a` sees
   `jp-open`, then `jp-b` must list both. The check fails on a missing one rather than
   inferring it, so anyone reading the file can see exactly who reads what.
@@ -275,6 +278,24 @@ queries that.
   leak. A value the higher tier only restates from below isn't its material, so it never
   matches. An ordinary word that both tiers hold on their own does match, and a person
   decides it, as with any spelling shared by an open and a restricted lexeme.
+- **A tier decides what isn't its material.** Every file a tier holds is its material by
+  default, untracked files that aren't ignored included. The tier itself lists the
+  exceptions, files such as its README, agent notes and `.gitignore`, as `.gitignore`-style
+  patterns in its own store (`.lectkit/not_material.txt`). Patterns name whole files or
+  folders, never parts of a file. A bare name such as `README.md` matches at any depth;
+  write `/README.md` for only the top-level file. Negation, character classes,
+  backslashes and `#` after the start of a line are errors, because a misread pattern
+  can hide material. The guard reads the list as staged, not as it is on disk. The list is part of the store's digest, since changing
+  it changes the database, but isn't material itself. It applies to the tier's own files
+  only. A lower store listing exclusions changes nothing about how it's screened: every
+  file in a lower store is read as source, so it's screened whole, including its README,
+  file names and commit messages. Only a higher tier decides what of its own may be
+  looked for below.
+- **Excluded files are guarded.** An excluded file isn't looked for in lower stores. So a
+  tier's pre-commit refuses a commit in which an excluded file holds a term from the
+  tier's own term registers (`terms`), naming the file and line only. That catches a
+  named restricted term, not a description. Anything a tier needs protected belongs in
+  its material, not in an excluded file.
 - **What a store holds.** In a store that is a git checkout of its own, the store's files
   are the ones git tracks plus new ones it doesn't ignore. Ignored files, such as editor
   folders, caches and build output, aren't part of it. Elsewhere every file is read.
@@ -313,9 +334,9 @@ store in it for material that store's readers mustn't see.
 - **One finding per line.** A finding gives the tier and store, the file, the line, the
   kinds of match, and every hidden tier matched, most restrictive first. It never gives
   the text, from either side.
-- **Text several tiers hold belongs to the lowest.** When hidden tiers both hold a text
-  and one of them sees the other, the match is the lower one's material only. Tiers that
-  don't see each other each keep it.
+- **Every holder decides.** When more than one hidden tier holds a matched text, each is
+  named and each decides for its own items. One spelling can carry a different meaning at
+  each tier, so no tier decides for another.
 - **Decisions live with the material they're about.** A match against tier X's material
   is X's decision, and every scanner above X can read X's store. So accepted matches and
   reviews are kept in X's own store, and every scan honours them. A finding is cleared
@@ -419,7 +440,9 @@ screens what L would hold after the commit.
 Hooks run locally, in each store's own checkout, and never on a server. Whoever runs them
 holds the classified stores they need.
 
-- **pre-commit** passes at once in a store whose tier no other tier sees (nothing there
+- **pre-commit** first refuses a commit that puts a registered term into a file the tier
+  excludes from its material (above). Then it passes at once in a store whose tier no
+  other tier sees (nothing there
   can be hidden from a tier above it). Otherwise it refuses unless there is current
   evidence for the staged tree. If there
   isn't, it runs the proposal scan, which writes evidence on a clean result, and then

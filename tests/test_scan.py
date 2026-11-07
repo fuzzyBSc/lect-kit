@@ -409,9 +409,25 @@ def test_decision_arguments_are_checked(tmp_path):
         scan.scan(db, reg, {"fx-open": {"gloss"}})
 
 
-def test_text_held_at_two_tiers_belongs_to_the_lower(tmp_path):
+def test_text_held_at_two_tiers_names_both(tmp_path):
+    """No tier decides for another: the same text held at two tiers needs both decisions,
+    since one spelling can carry a different meaning at each."""
     files = with_files(**{"fx-a": {"fx-a-notes.md": "fxsharedq line held twice\n"},
                           "fx-c": {"fx-c-notes.md": "intro\nfxsharedq line held twice\nmore\n"},
                           "fx-open": {"fx-notes.md": "fxsharedq line held twice\n"}})
     f = find(run(tmp_path, files), "fx-open", "fx-notes.md", 1)
-    assert f.hidden == ("fx-a",)                     # fx-c sees fx-a, so it's fx-a's to decide
+    assert f.hidden == ("fx-c", "fx-a")
+
+
+def test_a_tier_decides_which_of_its_files_arent_material(tmp_path):
+    files = with_files(**{"fx-c": {"fx-readme.md": "fxinfraq repository boilerplate line\n",
+                                   "lexicon/fx-c-notes.md": "fxcontentq material line\n",
+                                   ".lectkit/not_material.txt": "fx-readme.md\n"},
+                          "fx-open": {"fx-notes.md": "fxinfraq repository boilerplate line\n"
+                                                     "fxcontentq material line\n",
+                                      ".lectkit/not_material.txt": "fx-notes.md\n"}})
+    rep = run(tmp_path, files)
+    hit_lines = {f.line for f in rep.open_findings if f.rel == "fx-notes.md"}
+    # fx-c's README isn't its material; its lexicon is. fx-open excluding its own file
+    # changes nothing: a lower store is screened whole, and only a higher tier decides.
+    assert hit_lines == {2}

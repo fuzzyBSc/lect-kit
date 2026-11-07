@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Iterable
 
-from lectkit import audience_db, proposal, tiers
+from lectkit import audience_db, denylist, proposal, tiers
 
 ZERO = "0" * 40
 
@@ -64,12 +64,53 @@ def _report(res: proposal.ProposalResult, say: Callable[[str], None], what: str)
     return not res.held and not res.gaps and bool(res.verdicts)
 
 
+def excluded_file_hits(reg, tier: str, repo: Path, tree: str) -> list[tuple[str, int]]:
+    """(path, line) where a file the tier excludes from its material, as committed in
+    `tree`, holds a term from the tier's own term registers. An excluded file isn't
+    looked for in lower stores, so a registered term must not sit in one."""
+    t = reg.tiers[tier]
+    if not t.terms:
+        return []
+    missing = [p for p in t.terms if not p.is_file()]
+    if missing:
+        raise proposal.ProposalError(f"{tier}: a term register named in the register is missing")
+    files = proposal.tree_files(repo, tree)
+    staged = files.get(audience_db.EXCLUDE_FILE)
+    if staged is None:
+        return []
+    blob = subprocess.run(["git", "-C", str(repo), "cat-file", "blob", staged[1]], capture_output=True)
+    try:
+        patterns = audience_db.parse_patterns(blob.stdout.decode("utf-8-sig"))
+    except (UnicodeDecodeError, audience_db.BuildError) as e:
+        raise proposal.ProposalError(f"{tier}: the staged exclusion list can't be read: {e}") from None
+    if not t.terms or not patterns:
+        return []
+    try:
+        pats = denylist.matchers(t.terms)
+    except SystemExit:
+        raise proposal.ProposalError(f"{tier}: a term register can't be read") from None
+    out = []
+    for path, (mode, sha) in sorted(files.items()):
+        if not audience_db.excluded(patterns, path):
+            continue
+        blob = subprocess.run(["git", "-C", str(repo), "cat-file", "blob", sha], capture_output=True)
+        text = blob.stdout.decode("utf-8", "replace")
+        out += [(path, n) for n in denylist.hits(text.splitlines(), pats)]
+    return out
+
+
 def pre_commit(register_path: Path, low: str, repo: Path,
                say: Callable[[str], None] = print) -> int:
     try:
         reg = tiers.load(register_path)
         if reg.problems or low not in reg.tiers:
             say("[REFUSED] the register has problems or doesn't name this tier")
+            return 1
+        guarded = excluded_file_hits(reg, low, repo, proposal.staged_tree(repo))
+        if guarded:
+            for path, n in guarded:
+                say(f"[REFUSED] {path}:{n}: a registered term in a file this tier excludes from "
+                    f"its material; move it under the tier's material or rewrite it")
             return 1
         if not proposal.higher_tiers(reg, low):
             return 0                     # no tier sits above this one: nothing can be hidden from it

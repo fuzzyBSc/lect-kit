@@ -31,6 +31,74 @@ KIT_DIR = ".lectkit"   # kit configuration in a store, such as accepted scan mat
 # store's digest (recording a decision would otherwise make every database above stale).
 DECISION_FILES = {f"{KIT_DIR}/accepted_matches.yaml", f"{KIT_DIR}/reviewed_findings.yaml",
                   f"{KIT_DIR}/scan_key"}
+# A tier's own list of files in its store that aren't its material (README, agent notes,
+# .gitignore...). The tier decides. It's part of the store's digest, since it changes what
+# the database holds, but it isn't material itself.
+EXCLUDE_FILE = f"{KIT_DIR}/not_material.txt"
+
+
+UNSUPPORTED = set("![]\\")
+
+
+def parse_patterns(text: str, where: str = EXCLUDE_FILE) -> list[str]:
+    """Patterns from the text of an exclusion list.
+
+    One pattern per line. A line starting with `#` is a comment. `*` matches within one
+    folder level, `?` one character, `**` any number of folder levels. A pattern without
+    a slash, other than a trailing one, matches a name at any depth, so `README.md`
+    excludes every README. Use a leading `/` (`/README.md`) to mean only the top-level
+    file. A trailing `/` matches a folder and everything in it. Negation (`!`), character
+    classes, backslashes and `#` after the start of a line aren't supported. They are
+    errors rather than guesses, because a misread pattern can hide material."""
+    out = []
+    for n, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if UNSUPPORTED & set(line) or "#" in line:
+            raise BuildError(f"{where}:{n}: unsupported pattern syntax (no !, [ ], \\ or #)")
+        out.append(line)
+    return out
+
+
+def not_material(store: Path) -> list[str]:
+    """The patterns in a store's EXCLUDE_FILE, as it is on disk."""
+    f = store / EXCLUDE_FILE
+    if not f.is_file():
+        return []
+    return parse_patterns(f.read_text(encoding="utf-8-sig"))
+
+
+def _pattern_re(pat: str) -> re.Pattern:
+    folder = pat.endswith("/")
+    body = pat.rstrip("/")
+    anchored = "/" in body                 # a leading or middle slash anchors, as in .gitignore
+    p = body.lstrip("/")
+    rx = ""
+    i = 0
+    while i < len(p):
+        if p.startswith("**/", i):
+            rx += "(?:.*/)?"               # zero or more whole folders
+            i += 3
+        elif p.startswith("**", i):
+            rx += ".*"                     # a trailing ** : everything below
+            i += 2
+        elif p[i] == "*":
+            rx += "[^/]*"
+            i += 1
+        elif p[i] == "?":
+            rx += "[^/]"
+            i += 1
+        else:
+            rx += re.escape(p[i])
+            i += 1
+    head = "" if anchored else r"(?:.*/)?"
+    tail = r"/.*" if folder else r"(?:/.*)?"
+    return re.compile(rf"^{head}{rx}{tail}$")
+
+
+def excluded(patterns: list[str], rel: str) -> bool:
+    return any(_pattern_re(p).match(rel) for p in patterns)
 
 SCHEMA = """
 -- Every table has a `tier` column, and every row carries the tier its content belongs to.
@@ -225,9 +293,13 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
                     (t, rel, line, kind, s, normalise(s)))
         rep.source_values += 1
 
+    exclusions = {t: not_material(reg.tiers[t].store_path) for t in order}
+
     def model(rel, path, kind, s, tier, line=None):
-        if rel in DECISION_FILES:
+        if rel in DECISION_FILES or rel == EXCLUDE_FILE:
             return                        # decisions are scanned as source, never as model
+        if excluded(exclusions[tier], rel):
+            return                        # the tier says this file isn't its material
         cur = con.execute("INSERT INTO model_value (rel, path, kind, text, norm, tier, line) "
                           "VALUES (?, ?, ?, ?, ?, ?, ?)",
                           (rel, path, kind, s, normalise(s), tier, line))

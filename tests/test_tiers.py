@@ -136,3 +136,10 @@ def test_cli_exit_codes(tmp_path, capsys):
     assert "[CLOSED] jp-p / jp-q" in capsys.readouterr().out
     bad = write(tmp_path, "register: 1\ntiers: []\n")
     assert cli.main([str(bad)]) == 1
+
+
+def test_term_registers(tmp_path):
+    body = ("register: 1\ntiers:\n"
+            " - {id: o, name: O, sees: [], store: {path: s, remote: allowed}, terms: [t.yaml]}\n")
+    reg = tiers.load(write(tmp_path, body))
+    assert reg.problems == [] and reg.tiers["o"].terms == ((tmp_path / "t.yaml").resolve(),)
