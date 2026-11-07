@@ -262,6 +262,9 @@ queries that.
   folder. Every other store's `.lectkit/` is read like any other folder.
 - **Store digests.** The database records a digest of every file it read from each store,
   by path and content, so a later step can tell when a store has changed.
+- **Text without letters or digits isn't material.** A line or value with no letter or
+  digit in it (a frontmatter fence, a table rule, a code fence) carries no knowledge, so
+  it's read as source but never becomes model material.
 - **Every row keeps its classification.** Every table has a `tier` column and every row
   carries a tier: a source row its store's, a model row the tier that added it, a passage
   the tier of the value it was cut from, a skipped file its store's. The database's own
@@ -291,6 +294,21 @@ queries that.
   file in a lower store is read as source, so it's screened whole, including its README,
   file names and commit messages. Only a higher tier decides what of its own may be
   looked for below.
+- **Structure isn't material.** A tier lists, in its own store
+  (`.lectkit/structure.yaml`, as `{fields: [...]}`), the fields whose values are structure
+  rather than knowledge: enumerations and bookkeeping such as a status, a type, a tag list
+  or a generated-by stamp. In the tier's YAML files, a value directly under a listed field
+  (or in a list directly under it) isn't model material if it is 3 words or fewer; a longer
+  value is content whatever its field. In the tier's markdown, a listed field's lines in a
+  closed frontmatter block (`---` to `---` at the top) aren't model material; an unclosed
+  fence isn't frontmatter. The list is digested, like the
+  exclusion list, and isn't material itself.
+- **Term registers are rules.** In a tier's term registers (`terms`), the terms, variants
+  and patterns aren't screened as text, since a regular expression read as words is noise.
+  The scan applies them as rules against every row of the lower store, reporting a `term`
+  match. A register's keys are its format and aren't material either. Everything else in
+  a register (labels, notes) stays material, since a label often names or glosses the
+  restricted thing.
 - **Excluded files are guarded.** An excluded file isn't looked for in lower stores. So a
   tier's pre-commit refuses a commit in which an excluded file holds a term from the
   tier's own term registers (`terms`), naming the file and line only. That catches a

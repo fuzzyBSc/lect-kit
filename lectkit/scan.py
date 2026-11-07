@@ -12,7 +12,7 @@ import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lectkit import yamlio
+from lectkit import denylist, yamlio
 from lectkit.audience_db import (KIT_DIR, PASSAGE_WORDS, YAML_SUFFIXES, AudienceDB, normalise,
                                  store_digest)
 from lectkit.tiers import Register
@@ -211,6 +211,17 @@ def record_review(reg: Register, f: Finding, reason: str, by: str, at: str,
     return written
 
 
+def _rules(reg: Register, tier: str) -> list:
+    t = reg.tiers[tier]
+    missing = [p for p in t.terms if not p.is_file()]
+    if missing:
+        raise ScanError(f"{tier}: a term register named in the register is missing")
+    try:
+        return denylist.matchers(t.terms)
+    except SystemExit:
+        raise ScanError(f"{tier}: a term register can't be read") from None
+
+
 def check_fresh(db: AudienceDB, reg: Register) -> None:
     for t in db.tiers:
         store = reg.tiers[t].store_path if t in reg.tiers else None
@@ -281,6 +292,8 @@ def scan(db: AudienceDB, reg: Register,
         for norm, tier in db.con.execute(
                 f"SELECT norm, tier FROM model_passage WHERE tier IN ({hq})", hidden):
             hidden_passages.setdefault(norm, set()).add(tier)
+        # Each hidden tier's term registers, applied as terms and patterns.
+        rules = {t: _rules(reg, t) for t in hidden}
 
 
         hits: dict[tuple[str, int], set[tuple[str, str, str]]] = {}
@@ -309,6 +322,12 @@ def scan(db: AudienceDB, reg: Register,
                     g = " ".join(w[i:i + n])
                     if g != k and g in items and len(g) >= MIN_CHARS:
                         hit(rel, line, "token", items[g], g)
+            if rules:
+                raw = denylist.nfc(text)
+                for t, pats in rules.items():
+                    for rx in pats:
+                        if rx.search(raw):
+                            hit(rel, line, "term", {t}, "term:" + rx.pattern)
             streams.setdefault(rel, []).extend((x, line) for x in w)
         for rel, stream in streams.items():
             for i in range(len(stream) - PASSAGE_WORDS + 1):

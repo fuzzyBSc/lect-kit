@@ -431,3 +431,105 @@ def test_a_tier_decides_which_of_its_files_arent_material(tmp_path):
     # fx-c's README isn't its material; its lexicon is. fx-open excluding its own file
     # changes nothing: a lower store is screened whole, and only a higher tier decides.
     assert hit_lines == {2}
+
+
+TERM_TIERS = """\
+register: 1
+tiers:
+  - {id: fx-open, name: Open, sees: [], store: {path: stores/fx-open, remote: allowed}}
+  - {id: fx-a, name: A, sees: [fx-open], store: {path: stores/fx-a, remote: allowed}}
+  - {id: fx-c, name: C, sees: [fx-open, fx-a], store: {path: stores/fx-c, remote: none},
+     terms: [stores/fx-c/knowledge/fx-c-terms.yaml]}
+"""
+
+
+def term_setup(tmp_path, files):
+    reg, reg_file, out = setup(tmp_path, files)
+    reg_file.write_text(TERM_TIERS, encoding="utf-8")
+    reg = tiers.load(reg_file)
+    adb.build(reg, "fx-c", out)
+    return reg, out
+
+
+def test_a_term_register_is_applied_as_rules(tmp_path):
+    files = with_files(**{
+        "fx-c": {"knowledge/fx-c-terms.yaml":
+                 "tier: fx-c\nentries:\n- {id: t1, label: a label phrase here, variants: [fxtermq]}\n"
+                 "- {id: t2, label: other, pattern: 'fxpat[a-z]+q'}\n"},
+        "fx-open": {"fx-notes.md": "it says fxtermq here\nfxpatzzq too\na label phrase here\n"}})
+    reg, out = term_setup(tmp_path, files)
+    with adb.AudienceDB(out) as db:
+        rep = scan.scan(db, reg, {"fx-c": FIELD_NAMES, "fx-a": A_FIELD_NAMES})
+        assert "fx-c" in db.model_tiers("a label phrase here")       # labels stay material
+        assert "fx-c" not in db.model_tiers("fxpat[a-z]+q")          # a pattern is a rule only
+    got = {(f.line, f.matches) for f in rep.open_findings if f.rel == "fx-notes.md"}
+    assert got == {(1, ("term",)), (2, ("term",)), (3, ("value",))}
+
+
+def test_structure_fields_are_pre_cleared(tmp_path):
+    files = with_files(**{
+        "fx-c": {".lectkit/structure.yaml": "fields: [status, type, tags]\n",
+                 "fx-c-more.yaml": "entries:\n- id: fxs1\n  status: fxdraftq\n  w: fxkeepq\n",
+                 "fx-c-note.md": "---\ntype: fxnoteq\ntitle: fxtitleq\n---\nbody\n"},
+        "fx-open": {"fx-notes.md": "fxdraftq\nfxkeepq\ntype: fxnoteq\ntitle: fxtitleq\n"}})
+    rep = run(tmp_path, files)
+    lines = {f.line for f in rep.open_findings if f.rel == "fx-notes.md"}
+    assert lines == {2, 4}     # the status value and the type line are structure; the rest isn't
+
+
+
+def test_structure_fields_clear_only_short_values_under_their_own_key(tmp_path):
+    files = with_files(**{
+        "fx-c": {".lectkit/structure.yaml": "fields: [type, tags]\n",
+                 "fx-c-more.yaml": "entries:\n- id: fxs2\n  type: fxenumq\n"
+                                   "  tags: [fxtagq]\n"
+                                   "  examples:\n  - {type: fxlong sentence here held q}\n",
+                 "fx-c-open.md": "---\ntype: fxunclosedq\nbody line\n"},
+        "fx-open": {"fx-notes.md": "fxenumq\nfxtagq\nfxlong sentence here held q\ntype: fxunclosedq\n"}})
+    rep = run(tmp_path, files)
+    lines = {f.line for f in rep.open_findings if f.rel == "fx-notes.md"}
+    assert lines == {3, 4}    # a long value under `type` is content; an unclosed fence isn't frontmatter
+
+
+def test_a_lower_stores_structure_list_doesnt_change_its_screening(tmp_path):
+    files = with_files(**{
+        "fx-open": {".lectkit/structure.yaml": "fields: [w]\n", "fx-notes.md": "w: glossqy\n"}})
+    assert ("fx-open", "fx-notes.md", 1) in where(run(tmp_path, files))
+
+
+def test_structure_and_exclusion_lists_are_digested(tmp_path):
+    reg, _, out = setup(tmp_path, BASE)
+    kit = tmp_path / "stores" / "fx-a" / ".lectkit" / "structure.yaml"
+    kit.parent.mkdir(parents=True, exist_ok=True)
+    kit.write_text("fields: [type]\n", encoding="utf-8")
+    with adb.AudienceDB(out) as db, pytest.raises(scan.ScanError, match="changed since"):
+        scan.scan(db, reg)
+
+
+def test_a_missing_term_register_stops_the_scan(tmp_path):
+    reg, reg_file, out = setup(tmp_path, BASE)
+    reg_file.write_text(TERM_TIERS, encoding="utf-8")
+    reg = tiers.load(reg_file)
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db, pytest.raises(scan.ScanError, match="missing"):
+        scan.scan(db, reg)
+
+
+def test_a_suffix_guard_is_part_of_a_rule(tmp_path):
+    files = with_files(**{
+        "fx-c": {"knowledge/fx-c-terms.yaml":
+                 "entries:\n- {id: t1, label: x, variants: [fxtermq], suffix_guard: '(?!-[a-z])'}\n"},
+        "fx-open": {"fx-notes.md": "re.compile('[A-Z]')\n"}})
+    reg, out = term_setup(tmp_path, files)
+    with adb.AudienceDB(out) as db:
+        assert "fx-c" not in db.model_tiers("(?!-[a-z])")
+
+
+def test_a_term_registers_keys_are_its_format(tmp_path):
+    files = with_files(**{
+        "fx-c": {"knowledge/fx-c-terms.yaml": "entries:\n- {id: t1, fxregkeyq: x, label: fxlabelq phrase}\n"},
+        "fx-open": {"fx-notes.md": "fxregkeyq\n"}})
+    reg, out = term_setup(tmp_path, files)
+    with adb.AudienceDB(out) as db:
+        assert "fx-c" not in db.model_tiers("fxregkeyq")
+        assert "fx-c" in db.model_tiers("fxlabelq phrase")

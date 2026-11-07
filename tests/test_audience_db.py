@@ -353,3 +353,14 @@ def test_unsupported_exclusion_syntax_is_an_error(line):
 
 def test_exclusion_comments_and_blanks():
     assert adb.parse_patterns("# a comment\n\n/README.md\n") == ["/README.md"]
+
+
+def test_lines_without_letters_or_digits_arent_material(tmp_path):
+    files = {**FILES, "fx-c": {**FILES["fx-c"], "fx-c-table.md": "---\n| --- | --- |\nfxrowq cell\n"}}
+    reg, _ = setup(tmp_path, files)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        assert db.model_tiers("---") == set() and db.model_tiers("| --- | --- |") == set()
+        assert db.model_tiers("fxrowq cell") == {"fx-c"}
+        assert db.con.execute("SELECT count(*) FROM source_value WHERE norm = '---'").fetchone()[0] >= 1

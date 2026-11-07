@@ -35,6 +35,49 @@ DECISION_FILES = {f"{KIT_DIR}/accepted_matches.yaml", f"{KIT_DIR}/reviewed_findi
 # .gitignore...). The tier decides. It's part of the store's digest, since it changes what
 # the database holds, but it isn't material itself.
 EXCLUDE_FILE = f"{KIT_DIR}/not_material.txt"
+# A tier's own list of fields whose values are structure, not knowledge: enumerations and
+# bookkeeping (a status, a type, a tag list, a generated-by stamp). It covers YAML keys and
+# markdown frontmatter keys. Like the exclusion list, it's digested but isn't material.
+STRUCTURE_FILE = f"{KIT_DIR}/structure.yaml"
+
+
+def structure_fields(store: Path) -> set[str]:
+    f = store / STRUCTURE_FILE
+    if not f.is_file():
+        return set()
+    try:
+        d = yamlio.load_file(f)
+    except yamlio.YamlError:
+        raise BuildError(f"{STRUCTURE_FILE} is not valid YAML") from None
+    fields = (d or {}).get("fields", []) if isinstance(d, dict) else None
+    if not isinstance(fields, list) or not all(isinstance(x, str) and x for x in fields):
+        raise BuildError(f"{STRUCTURE_FILE} must be {{fields: [field names]}}")
+    return set(fields)
+
+
+# In a YAML file a structure field's value is cleared only when it is short: a sentence
+# under a field named `type` or `status` is still content.
+STRUCTURE_MAX_WORDS = 3
+# The keys of a term register whose values are rules (terms, variants, patterns).
+RULE_KEYS = {"term", "terms", "form", "forms", "word", "words", "headword", "lemma",
+             "variant", "variants", "pattern", "patterns", "regex",
+             "suffix_guard"}   # a regex appended to a pattern to rule out a look-alike
+
+FRONTMATTER_KEY = re.compile(r"^([A-Za-z_][\w-]*)\s*:")
+
+
+def frontmatter_structure_lines(lines: list[str], fields: set[str]) -> set[int]:
+    """Line numbers (from 1) of frontmatter lines whose key is a structure field."""
+    if not fields or not lines or lines[0].strip() != "---":
+        return set()
+    out = set()
+    for n, line in enumerate(lines[1:], 2):
+        if line.strip() == "---":
+            return out
+        m = FRONTMATTER_KEY.match(line)
+        if m and m.group(1) in fields:
+            out.add(n)
+    return set()                          # never closed: not frontmatter, so nothing is cleared
 
 
 UNSUPPORTED = set("![]\\")
@@ -294,12 +337,19 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
         rep.source_values += 1
 
     exclusions = {t: not_material(reg.tiers[t].store_path) for t in order}
+    structure = {t: structure_fields(reg.tiers[t].store_path) for t in order}
+    # A tier's term registers are rules, applied as rules by the scan, not text to match.
+    term_files = {t: {p.relative_to(reg.tiers[t].store_path.resolve()).as_posix()
+                      for p in reg.tiers[t].terms
+                      if reg.tiers[t].store_path.resolve() in p.parents} for t in order}
 
     def model(rel, path, kind, s, tier, line=None):
-        if rel in DECISION_FILES or rel == EXCLUDE_FILE:
+        if rel in DECISION_FILES or rel in (EXCLUDE_FILE, STRUCTURE_FILE):
             return                        # decisions are scanned as source, never as model
         if excluded(exclusions[tier], rel):
             return                        # the tier says this file isn't its material
+        if not re.search(r"[^\W_]", s):
+            return                        # no letter or digit (a fence, a rule): no knowledge
         cur = con.execute("INSERT INTO model_value (rel, path, kind, text, norm, tier, line) "
                           "VALUES (?, ?, ?, ?, ?, ?, ?)",
                           (rel, path, kind, s, normalise(s), tier, line))
@@ -329,10 +379,12 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
                 if line.strip():
                     source(t, rel, n, "line", line)
             if not is_yaml:
+                skip = frontmatter_structure_lines(lines, structure[t])
                 for n, line in enumerate(lines, 1):
-                    if line.strip() and added("line", line):
+                    if line.strip() and n not in skip and added("line", line):
                         model(rel, f"#line{n}", "line", line, t, n)
-                for start, para in _paragraphs(lines):
+                kept = ["" if n in skip else line for n, line in enumerate(lines, 1)]
+                for start, para in _paragraphs(kept):
                     if added("paragraph", para):
                         model(rel, f"#para{start}", "paragraph", para, t, start)
                 continue
@@ -368,6 +420,8 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
                 # content. The scanner tells field names from content by what lower tiers hold.
                 for k in node:
                     kt = composed.tier_of(path + (k,))
+                    if rel in term_files[kt]:
+                        continue          # a term register's keys are its format, not material
                     model(rel, layers.where(path + (k,)), "key", str(k), kt,
                           at(kt, "key", path + (k,)))
                 if layers.ID in node and path and isinstance(path[-1], tuple) and path[-1][0] == "id":
@@ -376,6 +430,13 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
                           at(t, "scalar", path + (layers.ID,)))
             elif node is not None and not isinstance(node, (list, bool)):
                 t = composed.tier_of(path)
+                # The scalar's own field: its key, or the key of the list it sits in.
+                own = path[-1] if path and isinstance(path[-1], str) else (
+                    path[-2] if len(path) > 1 and isinstance(path[-2], str) else None)
+                if rel in term_files[t] and own in RULE_KEYS:
+                    continue              # a term or pattern: the scan applies it as a rule
+                if own in structure[t] and len(str(node).split()) <= STRUCTURE_MAX_WORDS:
+                    continue              # a short value of a structure field: structure
                 model(rel, layers.where(path), "scalar", str(node), t, at(t, "scalar", path))
 
 
