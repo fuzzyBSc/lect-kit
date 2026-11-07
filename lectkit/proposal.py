@@ -104,9 +104,7 @@ def screen(reg: Register, tier: str, low: str, export: Path, tree: str) -> dict:
         db_path = Path(d) / f"{tier}.sqlite"
         audience_db.build(view, tier, db_path)
         with audience_db.AudienceDB(db_path) as db:
-            own = view.tiers[tier].store_path
-            rep = scan.scan(db, view, scan.load_accepted(own / scan.ACCEPT_FILE, view),
-                            scan.load_reviews(own / scan.REVIEW_FILE, view))
+            rep = scan.scan(db, view)
     locations = sorted({(f.rel, f.line) for f in rep.open_findings if f.tier == low})
     return {
         "screened_for": tier,

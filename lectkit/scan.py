@@ -39,11 +39,11 @@ class Finding:
     matches: tuple[str, ...]     # kinds of match: value, token, passage
     hidden: tuple[str, ...]      # every hidden tier matched, most restrictive first
     entry: str = ""              # digest of the lower text the finding covers
-    matched: tuple[str, ...] = ()  # keyed digests of the hidden items (and tiers) matched
     nth: int = 1                 # which copy of this entry in the file, counting from 1
     id: str = ""                 # keyed, so it can't be used to test guesses at hidden text
-    accepted: bool = False       # covered by accepted matches
-    reviewed: bool = False       # covered by a person's review of this exact entry
+    accepted: bool = False       # every matched tier's accepted matches cover it
+    reviewed: bool = False       # every matched tier's reviews cover it (and not all by accept)
+    items: tuple = field(default=(), repr=False, compare=False)  # (tier, text) matched; in memory only
 
     @property
     def cleared(self) -> bool:
@@ -69,8 +69,22 @@ def _mac(key: bytes, *parts: str) -> str:
     return hmac.new(key, "\x1f".join(parts).encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def read_key(store: Path) -> bytes | None:
+    """A tier's key, or None if it has none yet."""
+    f = store / KEY_FILE
+    if not f.is_file():
+        return None
+    try:
+        key = bytes.fromhex(f.read_text(encoding="ascii").strip())
+    except (UnicodeDecodeError, ValueError):
+        key = b""
+    if len(key) != 32:
+        raise ScanError(f"{KEY_FILE} is damaged; delete it and review findings again")
+    return key
+
+
 def scan_key(store: Path) -> bytes:
-    """The scanning tier's secret for finding ids and review digests, made on first use.
+    """A tier's secret for finding ids and review digests, made on first use.
 
     Without it, an id or a review digest could be recomputed from guesses at hidden text
     by anyone holding the report, which would confirm the guess."""
@@ -94,7 +108,10 @@ def _words(text: str) -> list[str]:
 
 
 def load_accepted(path: Path, reg: Register) -> dict[str, set[str]]:
-    """{lower tier: {normalised matched text}} from an accepted-matches file."""
+    """{lower tier: {normalised matched text}} from one tier's accepted-matches file.
+
+    The file lives in the store of the tier whose material is matched: that tier decides
+    that an item of its own is shared with a lower tier, not leaked to it."""
     if not path.is_file():
         return {}
     try:
@@ -115,8 +132,8 @@ def load_accepted(path: Path, reg: Register) -> dict[str, set[str]]:
     return out
 
 
-Review = tuple  # (tier, rel, entry, frozenset(matched), nth)
-REVIEW_KEYS = {"id", "tier", "rel", "entry", "matched", "nth", "reason", "by", "at"}
+Review = tuple  # (lower tier, rel, entry, frozenset(matched), nth)
+REVIEW_KEYS = {"tier", "rel", "entry", "matched", "nth", "reason", "by", "at"}
 
 
 def load_reviews(path: Path, reg: Register) -> set[Review]:
@@ -133,42 +150,65 @@ def load_reviews(path: Path, reg: Register) -> set[Review]:
         raise ScanError(f"{REVIEW_FILE} must be a list")
     out = set()
     for i, r in enumerate(rows):
-        ok = (isinstance(r, dict) and set(r) == REVIEW_KEYS
+        ok = (isinstance(r, dict) and set(r) - {"id"} == REVIEW_KEYS
               and r["tier"] in reg.tiers and isinstance(r["rel"], str)
               and isinstance(r["entry"], str) and isinstance(r["matched"], list)
               and all(isinstance(m, str) for m in r["matched"])
               and isinstance(r["nth"], int) and not isinstance(r["nth"], bool) and r["nth"] >= 1
               and isinstance(r["by"], str) and r["by"].startswith("human:"))
         if not ok:
-            raise ScanError(f"{REVIEW_FILE} entry {i + 1} needs exactly id, tier, rel, entry, "
-                            f"matched, nth, reason, at, and by naming a person (human:...)")
+            raise ScanError(f"{REVIEW_FILE} entry {i + 1} needs exactly tier, rel, entry, "
+                            f"matched, nth, reason, at (an id is optional), and by naming a "
+                            f"person (human:...)")
         out.add((r["tier"], r["rel"], r["entry"], frozenset(r["matched"]), r["nth"]))
     return out
 
 
-def record_review(store: Path, f: Finding, reason: str, by: str, at: str) -> Path:
-    """Append a person's review of one finding to the scanning tier's review file."""
+def _item_digests(key: bytes, tier: str, texts) -> list[str]:
+    return sorted({_mac(key, "item", tier, t) for t in texts})
+
+
+def record_review(reg: Register, f: Finding, reason: str, by: str, at: str,
+                  scanning: str | None = None) -> list[Path]:
+    """Record a person's review of one finding in the store of each tier whose material it
+    matched, so every scanner above that tier honours it. Returns the files written.
+
+    The finding's id is kept only in the scanning tier's own record: elsewhere it would
+    tell a lower tier's readers nothing they can use, beyond that someone above looked."""
     if not by.startswith("human:"):
         raise ScanError("a review is recorded for a person: by must be human:<name or role>")
     if not reason.strip():
         raise ScanError("a review needs a reason")
-    path = store / REVIEW_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if not f.items:
+        raise ScanError("this finding carries no matched items to review")
     import yaml
-    rows = []
-    if path.is_file():
-        try:
-            rows = yamlio.load_file(path) or []
-        except yamlio.YamlError:
-            raise ScanError(f"{REVIEW_FILE} is not valid YAML") from None
-        if not isinstance(rows, list):
-            raise ScanError(f"{REVIEW_FILE} must be a list")
-    rows.append({"id": f.id, "tier": f.tier, "rel": f.rel, "entry": f.entry,
-                 "matched": list(f.matched), "nth": f.nth, "reason": reason, "by": by, "at": at})
-    tmp = path.with_name(path.name + ".writing")
-    tmp.write_text(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True), encoding="utf-8")
-    tmp.replace(path)
-    return path
+    written = []
+    by_tier: dict[str, set[str]] = {}
+    for tier, text in f.items:
+        by_tier.setdefault(tier, set()).add(text)
+    for tier, texts in sorted(by_tier.items()):
+        store = reg.tiers[tier].store_path
+        path = store / REVIEW_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rows = []
+        if path.is_file():
+            try:
+                rows = yamlio.load_file(path) or []
+            except yamlio.YamlError:
+                raise ScanError(f"{tier}: {REVIEW_FILE} is not valid YAML") from None
+            if not isinstance(rows, list):
+                raise ScanError(f"{tier}: {REVIEW_FILE} must be a list")
+        row = {"tier": f.tier, "rel": f.rel, "entry": f.entry,
+               "matched": _item_digests(scan_key(store), tier, texts), "nth": f.nth,
+               "reason": reason, "by": by, "at": at}
+        if tier == scanning:
+            row = {"id": f.id, **row}
+        rows.append(row)
+        tmp = path.with_name(path.name + ".writing")
+        tmp.write_text(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        tmp.replace(path)
+        written.append(path)
+    return written
 
 
 def check_fresh(db: AudienceDB, reg: Register) -> None:
@@ -184,22 +224,40 @@ def _key(norm: str) -> str:
     return " ".join(_words(norm)) or norm
 
 
-def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = None,
-         reviewed: set[Review] | None = None) -> ScanReport:
+def scan(db: AudienceDB, reg: Register,
+         accepted: dict[str, dict[str, set[str]]] | None = None,
+         reviewed: dict[str, set[Review]] | None = None) -> ScanReport:
     """Every line of every lower store that matches material hidden from that store.
 
     A line matches when its whole text equals hidden material, when a run of up to
     MAX_TOKENS words in it equals a short hidden value or id, or when a five-word
     passage, counted across line ends in the file, equals one in hidden material.
 
-    A finding is cleared by accepted matches (every item it matched is accepted for that
-    tier), or by a person's review of that exact entry: the same file, the same text on
-    the line, and the same hidden items matched. Change either and it needs review again."""
+    A finding is cleared when, for every tier whose material it matched, that tier has
+    accepted those items for the lower tier, or a person's review recorded in that tier's
+    store covers this exact entry: the same file, the same text, the same copy and the same
+    items. Decisions are read from each tier's store unless `accepted` or `reviewed`
+    ({material tier: ...}) is given for it."""
     if db.audience not in reg.tiers or set(db.tiers) - set(reg.tiers):
         raise ScanError("the database was built from a different register")
     check_fresh(db, reg)
-    accepted = accepted or {}
-    reviewed = reviewed or set()
+    accepted = dict(accepted or {})
+    reviewed = dict(reviewed or {})
+    for t, d in accepted.items():
+        if t not in reg.tiers or not isinstance(d, dict) or not all(
+                isinstance(v, (set, frozenset)) for v in d.values()):
+            raise ScanError("accepted must be {material tier: {lower tier: set of texts}}")
+    for t, d in reviewed.items():
+        if t not in reg.tiers or not isinstance(d, (set, frozenset)):
+            raise ScanError("reviewed must be {material tier: set of reviews}")
+    keys: dict[str, bytes | None] = {}
+    for t in db.tiers:
+        store = reg.tiers[t].store_path
+        if t not in accepted:
+            accepted[t] = load_accepted(store / ACCEPT_FILE, reg)
+        if t not in reviewed:
+            reviewed[t] = load_reviews(store / REVIEW_FILE, reg)
+        keys[t] = read_key(store)
     key = scan_key(reg.tiers[db.audience].store_path)
     rank = {t: i for i, t in enumerate(reg.tiers)}
     rep = ScanReport(audience=db.audience)
@@ -223,6 +281,12 @@ def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = N
         for norm, tier in db.con.execute(
                 f"SELECT norm, tier FROM model_passage WHERE tier IN ({hq})", hidden):
             hidden_passages.setdefault(norm, set()).add(tier)
+        # Text several hidden tiers hold belongs to the lowest of them: a tier that sees
+        # another holder isn't the one it was hidden for, and that holder's decision is the
+        # one that counts. Peers, which don't see each other, each keep it.
+        for table in (values, items, hidden_passages):
+            for k, ts in table.items():
+                table[k] = {t for t in ts if not any(o in reg.tiers[t].sees for o in ts)}
 
         hits: dict[tuple[str, int], set[tuple[str, str, str]]] = {}
         spans: dict[tuple[str, int], set[int]] = {}
@@ -258,21 +322,32 @@ def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = N
                     covered = {ln for _, ln in stream[i:i + PASSAGE_WORDS]}
                     hit(rel, stream[i][1], "passage", hidden_passages[p], p, covered)
 
-        ok = {_key(normalise(x)) for x in accepted.get(low, set())}
         seen: dict[tuple, int] = {}
         for (rel, line), ms in sorted(hits.items()):
             # The entry is every line the finding covers, so a passage's later lines count.
             entry = _digest(*(t for ln in sorted(spans[(rel, line)]) for t in texts.get((rel, ln), [])))
-            matched = tuple(sorted({_mac(key, "item", m[1], m[2]) for m in ms}))
-            nth = seen[(rel, entry, matched)] = seen.get((rel, entry, matched), 0) + 1
+            items = tuple(sorted({(m[1], m[2]) for m in ms}))
+            nth = seen[(rel, entry, items)] = seen.get((rel, entry, items), 0) + 1
+            by_tier: dict[str, set[str]] = {}
+            for tier, text in items:
+                by_tier.setdefault(tier, set()).add(text)
+            acc = rev = True
+            for tier, texts_t in by_tier.items():
+                ok = {_key(normalise(x)) for x in accepted[tier].get(low, set())}
+                t_acc = texts_t <= ok
+                k = keys.get(tier)
+                t_rev = k is not None and (
+                    (low, rel, entry, frozenset(_item_digests(k, tier, texts_t)), nth)
+                    in reviewed[tier])
+                acc = acc and t_acc
+                rev = rev and (t_acc or t_rev)
             rep.findings.append(Finding(
                 low, rel, line,
                 matches=tuple(sorted({m[0] for m in ms})),
-                hidden=tuple(sorted({m[1] for m in ms}, key=lambda t: -rank[t])),
-                entry=entry, matched=matched, nth=nth,
-                id=_mac(key, "id", low, rel, entry, str(nth), *matched)[:12],
-                accepted=all(m[2] in ok for m in ms),
-                reviewed=(low, rel, entry, frozenset(matched), nth) in reviewed))
+                hidden=tuple(sorted(by_tier, key=lambda t: -rank[t])),
+                entry=entry, nth=nth,
+                id=_mac(key, "id", low, rel, entry, str(nth), *(f"{a}\x1f{b}" for a, b in items))[:12],
+                accepted=acc, reviewed=rev and not acc, items=items))
     return rep
 
 

@@ -6,7 +6,7 @@ Usage:
 Run inside the higher tier (knowledge/spec_classification.md, "Cross-tier scan"), on a
 database built by build_audience_db.py. Each finding names a tier, file and line, and
 never any text, with an id a person can review it by (review_finding.py). Accepted
-matches and reviews are read from the scanning tier's own store, in
+matches and reviews are read from the store of each tier whose material matched, in
 .lectkit/accepted_matches.yaml and .lectkit/reviewed_findings.yaml. --out may name a file under the scanning tier's own
 .lectkit/ folder or outside every store, never in a lower one.
 
@@ -40,10 +40,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("[ERROR] a report can't be written into a lower tier's store",
                       file=sys.stderr)
                 return 3
-            store = reg.tiers[db.audience].store_path
-            accepted = scan.load_accepted(store / scan.ACCEPT_FILE, reg)
-            reviewed = scan.load_reviews(store / scan.REVIEW_FILE, reg)
-            rep = scan.scan(db, reg, accepted, reviewed)
+            rep = scan.scan(db, reg)
     except (scan.ScanError, audience_db.BuildError) as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 3

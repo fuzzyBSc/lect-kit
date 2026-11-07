@@ -3,9 +3,10 @@
 Usage, inside the higher tier:
     python scripts/review_finding.py --register REG --db FILE --id ID --reason TEXT --by human:NAME
 
-ID is the finding id scan_tiers.py prints. The review is saved in the scanning tier's own
-store, in .lectkit/reviewed_findings.yaml, against the lower entry's exact text and the
-hidden items it matched (knowledge/spec_classification.md, "Cross-tier scan"). If the
+ID is the finding id scan_tiers.py prints. The review is saved in the store of each tier
+whose material the finding matched, in .lectkit/reviewed_findings.yaml, so every scanner
+above that tier honours it. It is keyed on the lower entry's exact text and the hidden
+items it matched (knowledge/spec_classification.md, "Cross-tier scan"). If the
 entry or what it matches changes, the finding comes back for review. Exit 0 when recorded,
 3 when it couldn't be.
 """
@@ -34,9 +35,7 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     try:
         with audience_db.AudienceDB(a.db) as db:
-            store = reg.tiers[db.audience].store_path
-            rep = scan.scan(db, reg, scan.load_accepted(store / scan.ACCEPT_FILE, reg),
-                            scan.load_reviews(store / scan.REVIEW_FILE, reg))
+            rep = scan.scan(db, reg)
         hits = [f for f in rep.findings if f.id == a.id]
         if not hits:
             print(f"[ERROR] no current finding has id {a.id}; scan again", file=sys.stderr)
@@ -49,13 +48,14 @@ def main(argv: list[str] | None = None) -> int:
         if f.reviewed:
             print(f"[NOTE] {a.id} is already reviewed")
             return 0
-        path = scan.record_review(store, f, a.reason, a.by,
-                                  datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        paths = scan.record_review(reg, f, a.reason, a.by,
+                                   datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                   scanning=db.audience)
     except (scan.ScanError, audience_db.BuildError) as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 3
-    print(f"[REVIEWED] {a.id} {f.tier}: {f.rel}:{f.line}, recorded in "
-          f"{path.relative_to(store).as_posix()}")
+    print(f"[REVIEWED] {a.id} {f.tier}: {f.rel}:{f.line}, recorded for "
+          f"{', '.join(sorted({t for t, _ in f.items}))}")
     return 0
 
 

@@ -25,7 +25,12 @@ YAML_SUFFIXES = {".yaml", ".yml"}
 MEDIA_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".wav", ".mp3", ".flac", ".ogg",
                   ".m4a", ".mp4", ".webm"}
 
-KIT_DIR = ".lectkit"   # kit configuration in a store, such as accepted scan matches; not read
+KIT_DIR = ".lectkit"   # kit configuration in a store, such as accepted scan matches
+# A tier's recorded decisions about matches. They're scanned as source, but they're neither
+# model material (an accepted text would otherwise match the stores below) nor part of a
+# store's digest (recording a decision would otherwise make every database above stale).
+DECISION_FILES = {f"{KIT_DIR}/accepted_matches.yaml", f"{KIT_DIR}/reviewed_findings.yaml",
+                  f"{KIT_DIR}/scan_key"}
 
 SCHEMA = """
 -- Every table has a `tier` column, and every row carries the tier its content belongs to.
@@ -116,6 +121,8 @@ def store_digest(tier: str, store: Path, skip_kit: bool = False) -> str:
     """A digest of every file the database reads from a store, by path and content."""
     h = hashlib.sha256()
     for p in store_files(tier, store, skip_kit):
+        if p.relative_to(store).as_posix() in DECISION_FILES:
+            continue
         h.update(p.relative_to(store).as_posix().encode("utf-8") + b"\0")
         h.update(hashlib.sha256(p.read_bytes()).digest())
     return h.hexdigest()
@@ -219,6 +226,8 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
         rep.source_values += 1
 
     def model(rel, path, kind, s, tier, line=None):
+        if rel in DECISION_FILES:
+            return                        # decisions are scanned as source, never as model
         cur = con.execute("INSERT INTO model_value (rel, path, kind, text, norm, tier, line) "
                           "VALUES (?, ?, ?, ?, ?, ?, ?)",
                           (rel, path, kind, s, normalise(s), tier, line))
@@ -270,7 +279,7 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
             for n, kind, s, path in items:
                 source(t, rel, n, kind, s)
                 line_of[t].setdefault((kind, layers.where(path)), n)
-        if not is_yaml:
+        if not is_yaml or rel in DECISION_FILES:
             continue
         try:
             composed = layers.compose(docs, audience, reg)

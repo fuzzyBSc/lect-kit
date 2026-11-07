@@ -313,36 +313,51 @@ store in it for material that store's readers mustn't see.
 - **One finding per line.** A finding gives the tier and store, the file, the line, the
   kinds of match, and every hidden tier matched, most restrictive first. It never gives
   the text, from either side.
-- **Accepted matches.** A person decides once that a matched item is shared, not leaked.
-  Decisions are kept in the scanning tier's store, in `.lectkit/accepted_matches.yaml`,
-  as a list of `{text, tier, reason, by, at}`. Here `text` is the matched item and `tier`
-  is the lower tier whose stores the decision covers. A finding is accepted only when
-  every item matched on its line is accepted. Only the scanning tier's own `.lectkit/` is
-  left out of the database. A lower store's `.lectkit/` is read, scanned and digested
-  like any other folder, so it can't hide material. Accepted findings are still counted
-  and are listed with `--show-accepted`.
+- **Text several tiers hold belongs to the lowest.** When hidden tiers both hold a text
+  and one of them sees the other, the match is the lower one's material only. Tiers that
+  don't see each other each keep it.
+- **Decisions live with the material they're about.** A match against tier X's material
+  is X's decision, and every scanner above X can read X's store. So accepted matches and
+  reviews are kept in X's own store, and every scan honours them. A finding is cleared
+  when every tier whose material it matched has cleared it.
+- **Accepted matches.** A person decides once that an item of tier X's material is shared
+  with a lower tier, not leaked to it. The decision is kept in X's store, in
+  `.lectkit/accepted_matches.yaml`, as a list of `{text, tier, reason, by, at}`, where
+  `text` is the matched item and `tier` is the lower tier whose stores it covers.
+- **Kit folders.** Only the scanning tier's own `.lectkit/` is left out of its database.
+  A lower store's `.lectkit/` is read, scanned and digested like any other folder, so it
+  can't hide material. The one exception is a tier's three decision files
+  (`accepted_matches.yaml`, `reviewed_findings.yaml`, `scan_key`). They're scanned as
+  source, but they aren't model material, so an accepted text can't itself match the
+  stores below. They aren't part of the store's digest either, so recording a decision
+  doesn't make the databases above it stale. Scans read decisions straight from the files. Accepted findings are still counted and are listed
+  with `--show-accepted`.
 - **Reviewed findings.** When a person reviews a finding from the report and decides the
-  lower entry is fine, `review_finding.py` saves that decision in the scanning tier's
-  `.lectkit/reviewed_findings.yaml`, by the finding's id. It records the lower tier, the
-  file, a digest of the lower text the finding covers (every line, for a passage that
-  spans lines), which copy of that text in the file it is, keyed digests of the hidden
-  items matched and their tiers, the reason, the person (`by: human:...`) and the time.
-  A later scan clears that finding while all of these are unchanged, even if the entry
-  moves to another line. The finding comes back for review in any of these cases:
+  lower entry is fine, `review_finding.py` saves that decision, by the finding's id, in
+  the store of each tier whose material it matched (`.lectkit/reviewed_findings.yaml`).
+  It records the lower tier, the file, a digest of the lower text the finding covers
+  (every line, for a passage that spans lines), which copy of that text in the file it
+  is, digests of that tier's matched items keyed with that tier's key, the reason, the
+  person (`by: human:...`) and the time. A later scan clears that finding while all of
+  these are unchanged, even if the entry moves to another line. The finding comes back
+  for review in any of these cases:
   - the lower text changes, including a later line of a passage;
   - it matches a different hidden item;
   - a matched item moves to another tier;
   - the line is copied again.
   The same text in another file isn't covered.
 - **Ids and review digests are keyed.** They're computed with a secret kept in the
-  scanning tier's store (`.lectkit/scan_key`, as hex text), made on first use and never
-  read into that tier's own database. Tiers above it can read it, as they can read the rest
-  of its store. Without that key, someone holding a report couldn't confirm a guess at hidden
-  text by recomputing an id. The review file and the key are as restricted as the
-  scanning tier.
+  tier's own store (`.lectkit/scan_key`, as hex text), made on first use and never read
+  into that tier's own database. A finding's id uses the scanning tier's key, and a
+  review's digests use the key of the tier whose material matched. Tiers above can read a
+  key, as they can read the rest of its store. Without the key, someone holding a report
+  couldn't confirm a guess at hidden text by recomputing an id. A review file and key are
+  as restricted as the store that holds them. A review row written below the scanning
+  tier leaves out the finding's id. Its readers still learn that someone above them
+  reviewed that entry.
 - **What a review proves.** `by: human:...` records who is responsible. It doesn't
-  authenticate them: anything that can write the scanning tier's store could add a
-  review. The guarantee is who can write that store.
+  authenticate them: anything that can write a store could add a review to it. The
+  guarantee is who can write that store.
 - **Fresh or refused.** The database records a digest of every store it read. The scan
   recomputes them and refuses to run if any store has changed since the build.
 - **Where the report goes.** The report is printed, or written under the scanning tier's
