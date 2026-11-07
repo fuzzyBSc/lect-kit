@@ -68,6 +68,14 @@ sentence patterns, kept in that tier's own store. A restricted tier can add to t
 model. It can, for example, add a word that takes the usual verb endings. It can't change
 the open model or take anything away from it.
 
+Every kind of file works the same way. A restricted tier keeps a file of the same kind,
+with the same name and in the same place in its own store, that holds only what the tier
+adds. If a word is open but one of its meanings is restricted, the open file has the word
+with its open meanings, and the restricted tier's file names the same word and adds the
+restricted meaning. Where a file is kept decides whose it is, so anything read from the
+restricted tier's file is treated as restricted. When a word is renamed, the new entry
+says which old name it replaces, so additions made under the old name still find it.
+
 ## Each build is for one audience
 
 When the kit builds tables, practice or anything else, it builds for one audience at a

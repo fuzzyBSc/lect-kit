@@ -4,7 +4,7 @@ title: Classification spec
 description: Build detail for community-defined tiers, per-tier paradigms, per-audience builds and leak checks.
 tags: [classification]
 status: draft
-generated: {by: agent:claude-opus-5.5, at: 2026-11-07T18:00:00+10:00}
+generated: {by: agent:claude-opus-5.5, at: 2026-11-07T21:00:00+10:00}
 ---
 
 # Classification spec
@@ -12,7 +12,7 @@ generated: {by: agent:claude-opus-5.5, at: 2026-11-07T18:00:00+10:00}
 Agent-facing build detail for classification. Carries out `PRINCIPLES.md` §4. The human
 explanation is `docs/classification.md`. If the two disagree, stop and raise it.
 
-Only the register file is built so far.
+The register file and layered files are built so far.
 
 Classification here means who may see something under a community's own rules. It is a
 different thing from evidence quality or review state, and the kit keeps them apart.
@@ -138,6 +138,61 @@ That keeps the general model the same whether or not restricted tiers are loaded
 A tier can also hold a sense of a general word. The word stays in the general register
 with its general senses, and the restricted sense lives in the restricted tier and
 points to it. A general build sees the word and none of the restricted senses.
+
+### Layered files (built: `lectkit/layers.py`, `scripts/compose_layers.py`)
+
+Every file format is layered. There's no separate overlay format. A tier that adds to a
+file keeps a file **in the same form**, at the **same relative path and file name** in
+its own store, naming the same records and holding only what it adds:
+
+```yaml
+# stores/fx-open/lexicon/fx-nouns.yaml
+entries:
+  - id: stemA
+    senses:
+      - {id: stemA-s1, gloss: glossA1}
+
+# stores/fx-a/lexicon/fx-nouns.yaml (same path, same form)
+entries:
+  - id: stemA                  # the same lexeme
+    senses:
+      - {id: stemA-s2, gloss: glossA2}   # an added sense, tier fx-a
+  - id: stemC                  # a whole new lexeme, tier fx-a
+    senses:
+      - {id: stemC-s1, gloss: glossC1}
+```
+
+- **Location decides the tier.** A record, sense or value takes the tier of the store
+  whose file added it. A field inside a file that names a tier isn't read as one.
+- **Order comes from the register.** Composing for an audience reads the file from the
+  audience's own store and from every store its `sees` list names, and applies each tier
+  after every tier it sees. Formats declare nothing about layering.
+- **A higher layer only adds.** The rule is the same for every format:
+  - a mapping key a lower layer lacks is added; one it has is merged if both values are
+    mappings or both are lists, and must be equal otherwise;
+  - in a list, a mapping with an `id` joins the lower item with the same `id` and merges
+    into it; a new `id` is appended; any other item (a plain value, or a mapping
+    without an `id`) is appended unless an equal item is already there.
+  Nothing a lower layer holds is changed, reordered or removed. A differing value, or a
+  value whose type differs from the one below, is an error. Restating an equal value adds
+  nothing.
+- **Ids.** Records, and sub-records a higher tier may extend or cite such as senses,
+  carry an `id` (text or an integer) unique within their list. An id may not name a sense
+  held at a higher tier. Composing can't check that, because a lower audience never
+  loads the higher layer; the higher tier's own leak scan does.
+- **Renames.** A record that replaces older ones lists their ids under `replaces`. Only a
+  record a layer adds can carry `replaces`: a higher layer can't add it to a record a lower
+  layer holds. In each layer and in the composed result, an id under `replaces` is an
+  error if a record in the same list still uses it, or if two records claim it. A higher
+  layer's item whose `id` matches no record but is claimed under `replaces` joins the
+  claiming record. The old record doesn't point forward.
+- **The result says each value's tier.** Composing returns the merged document and,
+  for each record and value, the tier that added it, so every reader of a composed file
+  treats an added sense as its own tier's.
+- **An absent store is reported**, never passed: the view it gives is incomplete.
+- **Files are read strictly** (`lectkit/yamlio.py`): a repeated key is an error, only
+  `true`/`false` are booleans (so words like `no` and `on` stay text), and dates stay
+  text.
 
 ## Builds are per audience
 
