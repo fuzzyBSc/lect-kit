@@ -19,3 +19,41 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+Indigenous Cultural and Intellectual Property (ICIP) notice
+
+This notice sits alongside the MIT License above and doesn't change it. It says what
+the licence covers and what it doesn't.
+
+1. The MIT License applies only to lect-kit's own code and documentation. It grants no
+   rights in any community's language, knowledge, stories, songs, recordings,
+   transcripts, names or other cultural expression.
+
+2. Indigenous Cultural and Intellectual Property belongs to the communities it comes
+   from. Those rights are held collectively and continue indefinitely. They don't
+   depend on copyright, so material that is out of copyright or published long ago can
+   still carry them.
+
+3. Using lect-kit with a community's material gives no one, including the authors of
+   lect-kit, any rights in that material. Anyone who uses the kit with a community's
+   material is responsible for having that community's free, prior and informed
+   consent, and for following its protocols, labels and terms of use.
+
+4. No community's material should be used to train AI models without that
+   community's consent. lect-kit doesn't need AI to work, and by default sends nothing
+   to an AI service.
+
+5. Labels, notices and terms that a community attaches to its material, such as
+   Traditional Knowledge Labels, travel with that material through anything built with
+   lect-kit. Don't remove or alter them without the community's agreement.
+
+6. The Japanese worked example in examples/demo/ is drawn from public-domain sources
+   and excludes material belonging to any Indigenous people.
+
+7. This notice states the authors' position and the expectations of those who use the
+   kit. It isn't legal advice, and Australian law doesn't fully protect ICIP. Where a
+   community has its own protocols, those come first.
+
+See PRINCIPLES.md (sections 5 and 13), docs/icip.md and docs/ai.md.

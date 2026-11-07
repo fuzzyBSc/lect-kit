@@ -1,0 +1,50 @@
+# Local Contexts Traditional Knowledge (TK) Labels: a scheme descriptor.
+#
+# Names, codes and categories only, as published by Local Contexts at
+# https://localcontexts.org/labels/traditional-knowledge-labels/ (checked 2026-11-07).
+# The meaning of each Label, and any text a community writes for it, comes from Local
+# Contexts and from the community. It isn't copied here. Look a Label up at its URL or
+# through the Local Contexts Hub API (https://localcontextshub.org/api/v1/).
+#
+# Labels are applied by communities. This file only lets the kit recognise them and
+# suggest how a community might align its tiers with them. The `suggests` field is a
+# starting point for a community to accept, change or ignore. It never sets access.
+#
+# id is lect-kit's identifier for each Label and matches [A-Za-z_-][A-Za-z0-9_-]*.
+# code is the publisher's display abbreviation, kept as text for showing to people. It
+# contains a space, so never use it as an identifier.
+#
+# suggests:
+#   restricts  - the Label signals limited access. Suggest a tier that isn't open.
+#   attributes - the Label is about credit or provenance. Suggest attribution text.
+#   permits    - the Label states approved uses. Suggest publication terms.
+#   describes  - the Label adds context without changing access or use.
+
+scheme: localcontexts-tk
+name: Local Contexts TK Labels
+applied_by: community
+url: https://localcontexts.org/labels/traditional-knowledge-labels/
+labels:
+  # Provenance
+  - {id: tk-attribution, code: "TK A", name: "TK Attribution", category: provenance, suggests: attributes}
+  - {id: tk-clan, code: "TK CL", name: "TK Clan", category: provenance, suggests: attributes}
+  - {id: tk-family, code: "TK F", name: "TK Family", category: provenance, suggests: attributes}
+  - {id: tk-multiple-communities, code: "TK MC", name: "TK Multiple Communities", category: provenance, suggests: attributes}
+  - {id: tk-community-voice, code: "TK CV", name: "TK Community Voice", category: provenance, suggests: describes}
+  - {id: tk-creative, code: "TK CR", name: "TK Creative", category: provenance, suggests: describes}
+  # Protocol
+  - {id: tk-verified, code: "TK V", name: "TK Verified", category: protocol,   suggests: describes}
+  - {id: tk-non-verified, code: "TK NV", name: "TK Non-Verified", category: protocol,   suggests: describes}
+  - {id: tk-seasonal, code: "TK S", name: "TK Seasonal", category: protocol,   suggests: restricts}
+  - {id: tk-women-general, code: "TK WG", name: "TK Women General", category: protocol,   suggests: restricts}
+  - {id: tk-men-general, code: "TK MG", name: "TK Men General", category: protocol,   suggests: restricts}
+  - {id: tk-men-restricted, code: "TK MR", name: "TK Men Restricted", category: protocol,   suggests: restricts}
+  - {id: tk-women-restricted, code: "TK WR", name: "TK Women Restricted", category: protocol,   suggests: restricts}
+  - {id: tk-culturally-sensitive, code: "TK CS", name: "TK Culturally Sensitive", category: protocol,   suggests: restricts}
+  - {id: tk-secret-sacred, code: "TK SS", name: "TK Secret / Sacred", category: protocol,   suggests: restricts}
+  # Permission
+  - {id: tk-open-to-commercialization, code: "TK OC", name: "TK Open to Commercialization", category: permission, suggests: permits}
+  - {id: tk-non-commercial, code: "TK NC", name: "TK Non-Commercial", category: permission, suggests: permits}
+  - {id: tk-community-use-only, code: "TK CO", name: "TK Community Use Only", category: permission, suggests: restricts}
+  - {id: tk-outreach, code: "TK O", name: "TK Outreach", category: permission, suggests: permits}
+  - {id: tk-open-to-collaboration, code: "TK CB", name: "TK Open to Collaboration", category: permission, suggests: permits}
