@@ -12,7 +12,7 @@ generated: {by: agent:claude-opus-5.5, at: 2026-11-07T21:00:00+10:00}
 Agent-facing build detail for classification. Carries out `PRINCIPLES.md` §4. The human
 explanation is `docs/classification.md`. If the two disagree, stop and raise it.
 
-The register file and layered files are built so far.
+The register file, layered files and the audience database are built so far.
 
 Classification here means who may see something under a community's own rules. It is a
 different thing from evidence quality or review state, and the kit keeps them apart.
@@ -229,6 +229,55 @@ Besides the general-build test:
   stores. Hits are reported by file and line, never by the matched text.
 - A spelling that matches both a general and a restricted lexeme is flagged for a person
   to decide. The kit doesn't guess which one is meant.
+
+### Audience database (built: `lectkit/audience_db.py`, `scripts/build_audience_db.py`)
+
+A term register only finds material that names a restricted thing. It misses material
+that describes one, and material copied from a tier's own records. So each audience builds
+a database of **everything it can see**, with the tier of every value, and its leak scanner
+queries that.
+
+- **One audience, one database.** It's built from the audience's own store and every store
+  its `sees` list names. A store in that list that's absent stops the build, because the
+  database would then wrongly show material held below as if it weren't.
+- **Two views of each file:**
+  - `source_value`: every scalar, mapping key, comment and line of every file in every
+    store read, with the store's tier, the file's relative path and the line number. This
+    is what a scanner reports against.
+  - `model_value`: every value, key and id as the composed model holds it (`Layered
+    files`), with the tier that added it and the line where that tier's file writes it. Layered YAML files are composed, so a value a higher tier
+    only restates keeps its lower tier. Other text files take their store's tier, line by
+    line and paragraph by paragraph, so a passage that wraps across lines still matches.
+    Comments are read outside the spans of scalars, so a `#` inside a quoted or block
+    scalar isn't taken for one.
+  - `model_passage` holds every run of 5 consecutive normalised words in a model value,
+    so a copied or lightly edited passage still matches.
+- **Every row keeps its classification.** Every table has a `tier` column and every row
+  carries a tier: a source row its store's, a model row the tier that added it, a passage
+  the tier of the value it was cut from, a skipped file its store's. The database's own
+  description (format, audience, tiers read) carries the lowest tier read, and the
+  database as a whole is classified as its audience. A row whose tier the audience doesn't
+  read, a table without a `tier` column, or a passage whose tier differs from its value's
+  fails the build, and fails again whenever the database is opened.
+- **Normalised text** (NFC, case-folded, whitespace collapsed) sits beside the original,
+  so lookups don't depend on spelling case or Unicode form.
+- **Keys.** Every mapping key is recorded at the tier that added it, because in a
+  free-form mapping a key can be content. A key that a tier the scanned store can see also
+  uses as a key is a field name, and the scanner doesn't count it as a match.
+- **What a leak looks like, for the scanner.** A value in a store of tier L that equals
+  (or shares a passage with) model material added by a tier L can't see is a candidate
+  leak. A value the higher tier only restates from below isn't its material, so it never
+  matches. An ordinary word that both tiers hold on their own does match, and a person
+  decides it, as with any spelling shared by an open and a restricted lexeme.
+- **Files.** A symbolic link anywhere in a store stops the build, and so does a YAML file
+  with an alias or more than one document. A file that isn't UTF-8
+  text stops it too, unless it's an image, audio or video file, which is counted and
+  left out. A YAML file that doesn't parse or doesn't compose stops it. Errors name the
+  store and file, never its content.
+- **The database holds readable restricted text.** It's as restricted as the most
+  restricted tier it holds, and it's ephemeral: it's built on request into a path
+  outside every store in the register and outside any git working tree, written to a temporary file and moved into place
+  only when complete, and never committed, backed up or copied.
 
 ## Screening open material: containment
 
