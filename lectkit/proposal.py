@@ -21,6 +21,8 @@ VERDICT_KEYS = {"screened_for", "outcome", "basis", "by", "at", "tree", "locatio
 OUTCOMES = {"hold", "no_match"}
 SCREENER = Path(__file__).resolve().parent.parent / "scripts" / "screen_for_tier.py"
 EVIDENCE_DIR = "lectkit/evidence"      # inside the lower store's git directory
+MESSAGE_REL = ".lectkit-commit-message"  # where a commit or tag object is scanned, as one more file
+PATHS_REL = ".lectkit-paths"             # every path in the tree, one per line: names are published too
 
 
 class ProposalError(ValueError):
@@ -154,7 +156,10 @@ class ProposalResult:
         return any(v["outcome"] == "hold" for v in self.verdicts)
 
 
-def run(register_path: Path, low: str, repo: Path) -> ProposalResult:
+def run(register_path: Path, low: str, repo: Path, tree: str | None = None,
+        message: str | None = None) -> ProposalResult:
+    """Screen `tree` (the staged tree when None) for every higher tier. With `message`, a
+    commit message is screened too, as the file MESSAGE_REL of the proposed tree."""
     reg = tiers.load(register_path)
     if reg.problems:
         raise ProposalError("the register has problems; run check_tier_register")
@@ -163,12 +168,21 @@ def run(register_path: Path, low: str, repo: Path) -> ProposalResult:
     store = reg.tiers[low].store_path
     if store is None or store.resolve() != Path(repo).resolve():
         raise ProposalError(f"this checkout isn't the store the register gives for {low}")
-    tree = staged_tree(repo)
+    tree = tree or staged_tree(repo)
     res = ProposalResult(tier=low, tree=tree, register_digest=_file_digest(register_path))
     with tempfile.TemporaryDirectory(prefix="lectkit-proposal-") as d:
         export = Path(d) / "tree"
         export.mkdir()
         paths = export_tree(repo, tree, export)       # the tree by name: no race with the index
+        if PATHS_REL in paths:
+            raise ProposalError(f"the tree holds {PATHS_REL}, which is reserved")
+        (export / PATHS_REL).write_text("".join(f"{p}\n" for p in sorted(paths)), encoding="utf-8")
+        paths.add(PATHS_REL)
+        if message is not None:
+            if MESSAGE_REL in paths:
+                raise ProposalError(f"the tree holds {MESSAGE_REL}, which is reserved")
+            (export / MESSAGE_REL).write_text(message, encoding="utf-8")
+            paths.add(MESSAGE_REL)
         for t in higher_tiers(reg, low):
             ts = reg.tiers[t].store_path
             # A higher store counts only if it is there and is a checkout of its own: an
@@ -176,6 +190,7 @@ def run(register_path: Path, low: str, repo: Path) -> ProposalResult:
             if ts is None or not ts.is_dir() or tiers.git_remotes(ts) is None:
                 res.gaps.append(t)
                 continue
+            before = audience_db.store_digest(t, ts, skip_kit=True)
             r = subprocess.run(
                 [sys.executable, "-E", str(SCREENER), "--register", str(register_path),
                  "--tier", t, "--lower", low, "--export", str(export), "--tree", tree],
@@ -183,7 +198,9 @@ def run(register_path: Path, low: str, repo: Path) -> ProposalResult:
             if r.returncode != 0:
                 raise ProposalError(f"{t}: the screen couldn't run")
             res.verdicts.append(accept_verdict(r.stdout, t, tree, paths))
-            res.higher_digests[t] = audience_db.store_digest(t, ts, skip_kit=True)
+            if audience_db.store_digest(t, ts, skip_kit=True) != before:
+                raise ProposalError(f"{t}: the store changed while it was screening; run again")
+            res.higher_digests[t] = before
     return res
 
 

@@ -12,7 +12,7 @@ generated: {by: agent:claude-opus-5.5, at: 2026-11-07T21:00:00+10:00}
 Agent-facing build detail for classification. Carries out `PRINCIPLES.md` §4. The human
 explanation is `docs/classification.md`. If the two disagree, stop and raise it.
 
-The register file, layered files, the audience database, the cross-tier scan and the proposal scan are built so far.
+The register file, layered files, the audience database, the cross-tier scan, the proposal scan and the commit and push hooks are built so far.
 
 Classification here means who may see something under a community's own rules. It is a
 different thing from evidence quality or review state, and the kit keeps them apart.
@@ -353,7 +353,7 @@ Before a commit lands in a store of tier L, every higher tier present on the mac
 screens what L would hold after the commit.
 
 - **The proposal is the whole staged tree**, not the diff: the tree `git write-tree`
-  names. A leak already committed is caught with the new one, and everything a verdict
+  names, and every path in it, since file and folder names are published too. A leak already committed is caught with the new one, and everything a verdict
   mentions is part of what's proposed. The tree is exported **by name, blob by blob from
   the object store**, to a temporary folder outside every store, then scanned and
   deleted. Index flags (skip-worktree, sparse checkout), filters, encodings and
@@ -390,6 +390,46 @@ screens what L would hold after the commit.
   user.
 - **Exit codes.** 0 means every higher tier returned `no_match`. 1 means a hold. 2 means a
   higher tier wasn't screened. 3 means the scan couldn't run.
+
+### Commit and push hooks (built: `lectkit/hooks.py`, `scripts/lectkit_hook.py`, `scripts/install_hooks.py`)
+
+Hooks run locally, in each store's own checkout, and never on a server. Whoever runs them
+holds the classified stores they need.
+
+- **pre-commit** refuses unless there is current evidence for the staged tree. If there
+  isn't, it runs the proposal scan, which writes evidence on a clean result, and then
+  checks again. Another process can still change the index after the hook returns and
+  before git writes the commit; the push hook screens every commit again, so that
+  can't reach a remote.
+- **Current evidence** for a tree means all of the following:
+  - a record exists for that tree;
+  - it names every higher tier, no more and no fewer;
+  - the register's digest is unchanged;
+  - each higher store is present, is a checkout of its own, and still has the digest
+    recorded.
+  A higher tier that adds material after the scan makes the evidence stale, and the
+  tree is screened again.
+- **pre-push** screens every commit being pushed that the remote doesn't already have,
+  not just the last one. What the remote has is asked of the remote itself, not read
+  from local tracking refs, which can be stale. If the remote can't be asked, every
+  commit back to the root is screened. Each commit is screened afresh: its whole tree,
+  plus the whole commit object as one more file. That covers the message, the author
+  and committer names, embedded tag messages and signatures, decoded with the commit's
+  own encoding. An annotated tag's whole object is screened the same way. All of these
+  are published with the push. An update git sends that the hook can't read refuses.
+  Any hold, gap or failure refuses the push. A store whose tier has `remote: none`
+  refuses every push.
+- **Installing.** `install_hooks.py` writes both hooks into a store's checkout. Each
+  names the register, the store's tier and the kit by absolute path. It won't replace a
+  hook it didn't write unless told to.
+- **Limits.** A hook is a local check. These skip it:
+  - `--no-verify`;
+  - a `core.hooksPath` set elsewhere;
+  - pushing from a clone without the hooks.
+
+  It keeps an honest mistake from leaving a machine. It doesn't stop someone set on
+  getting round it. In a linked worktree the checkout isn't the registered store, so
+  every commit there is refused.
 
 ## Screening open material: containment
 
