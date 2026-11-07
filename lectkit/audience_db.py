@@ -6,6 +6,7 @@ outside every store, and ephemeral.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import sqlite3
@@ -22,6 +23,8 @@ PASSAGE_WORDS = 5
 YAML_SUFFIXES = {".yaml", ".yml"}
 MEDIA_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".wav", ".mp3", ".flac", ".ogg",
                   ".m4a", ".mp4", ".webm"}
+
+KIT_DIR = ".lectkit"   # kit configuration in a store, such as accepted scan matches; not read
 
 SCHEMA = """
 -- Every table has a `tier` column, and every row carries the tier its content belongs to.
@@ -57,13 +60,15 @@ def passages(text: str) -> Iterator[str]:
         yield " ".join(w[i:i + PASSAGE_WORDS])
 
 
-def store_files(tier: str, store: Path) -> Iterator[Path]:
+def store_files(tier: str, store: Path, skip_kit: bool = False) -> Iterator[Path]:
     """Every file in a store, outside .git. A symbolic link anywhere is an error: it could
-    pull in material from outside the store, or hide material the walk wouldn't reach."""
+    pull in material from outside the store, or hide material the walk wouldn't reach.
+    `skip_kit` leaves out the store's .lectkit/ folder: only the scanning tier's own kit
+    folder is skipped, so a lower store can't hide material there."""
     for root, dirs, files in os.walk(store, followlinks=False):
         rp = Path(root)
         if rp == store:
-            dirs[:] = [d for d in dirs if d != ".git"]
+            dirs[:] = [d for d in dirs if d != ".git" and not (skip_kit and d == KIT_DIR)]
         for name in dirs + files:
             if (rp / name).is_symlink():
                 raise BuildError(f"{tier}: {(rp / name).relative_to(store).as_posix()}: "
@@ -71,6 +76,15 @@ def store_files(tier: str, store: Path) -> Iterator[Path]:
         dirs.sort()
         for name in sorted(files):
             yield rp / name
+
+
+def store_digest(tier: str, store: Path, skip_kit: bool = False) -> str:
+    """A digest of every file the database reads from a store, by path and content."""
+    h = hashlib.sha256()
+    for p in store_files(tier, store, skip_kit):
+        h.update(p.relative_to(store).as_posix().encode("utf-8") + b"\0")
+        h.update(hashlib.sha256(p.read_bytes()).digest())
+    return h.hexdigest()
 
 
 def _walk(node: Any, path: tuple) -> Iterator[tuple[tuple, Any]]:
@@ -131,7 +145,9 @@ def build(reg: Register, audience: str, out: Path) -> BuildReport:
         base = order[0]
         con.executemany("INSERT INTO meta VALUES (?, ?, ?)",
                         [("format", FORMAT, base), ("audience", audience, base),
-                         ("tiers", " ".join(order), base), ("classification", audience, base)])
+                         ("tiers", " ".join(order), base), ("classification", audience, base)]
+                        + [(f"digest:{t}", store_digest(t, reg.tiers[t].store_path, t == audience), t)
+                           for t in order])
         _fill(con, reg, order, audience, rep)
         verify(con, order)
         con.commit()
@@ -150,7 +166,7 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
     texts: dict[str, dict[str, str]] = {}   # rel -> {tier: text}
     for t in order:
         store = reg.tiers[t].store_path
-        for p in store_files(t, store):
+        for p in store_files(t, store, t == audience):
             rel = p.relative_to(store).as_posix()
             rep.files += 1
             try:
@@ -279,6 +295,8 @@ class AudienceDB:
         self.audience: str = meta["audience"]
         self.tiers: list[str] = meta["tiers"].split()
         self.classification: str = meta["classification"]
+        self.digests: dict[str, str] = {k.split(":", 1)[1]: v for k, v in meta.items()
+                                        if k.startswith("digest:")}
         verify(self.con, self.tiers)
 
     def close(self) -> None:

@@ -12,7 +12,7 @@ generated: {by: agent:claude-opus-5.5, at: 2026-11-07T21:00:00+10:00}
 Agent-facing build detail for classification. Carries out `PRINCIPLES.md` §4. The human
 explanation is `docs/classification.md`. If the two disagree, stop and raise it.
 
-The register file, layered files and the audience database are built so far.
+The register file, layered files, the audience database and the cross-tier scan are built so far.
 
 Classification here means who may see something under a community's own rules. It is a
 different thing from evidence quality or review state, and the kit keeps them apart.
@@ -252,6 +252,11 @@ queries that.
     scalar isn't taken for one.
   - `model_passage` holds every run of 5 consecutive normalised words in a model value,
     so a copied or lightly edited passage still matches.
+- **Kit configuration isn't read.** The audience's own store keeps kit configuration and
+  reports, such as accepted scan matches, in `.lectkit/`. The database doesn't read that
+  folder. Every other store's `.lectkit/` is read like any other folder.
+- **Store digests.** The database records a digest of every file it read from each store,
+  by path and content, so a later step can tell when a store has changed.
 - **Every row keeps its classification.** Every table has a `tier` column and every row
   carries a tier: a source row its store's, a model row the tier that added it, a passage
   the tier of the value it was cut from, a skipped file its store's. The database's own
@@ -262,8 +267,7 @@ queries that.
 - **Normalised text** (NFC, case-folded, whitespace collapsed) sits beside the original,
   so lookups don't depend on spelling case or Unicode form.
 - **Keys.** Every mapping key is recorded at the tier that added it, because in a
-  free-form mapping a key can be content. A key that a tier the scanned store can see also
-  uses as a key is a field name, and the scanner doesn't count it as a match.
+  free-form mapping a key can be content.
 - **What a leak looks like, for the scanner.** A value in a store of tier L that equals
   (or shares a passage with) model material added by a tier L can't see is a candidate
   leak. A value the higher tier only restates from below isn't its material, so it never
@@ -278,6 +282,49 @@ queries that.
   restricted tier it holds, and it's ephemeral: it's built on request into a path
   outside every store in the register and outside any git working tree, written to a temporary file and moved into place
   only when complete, and never committed, backed up or copied.
+
+### Cross-tier scan (built: `lectkit/scan.py`, `scripts/scan_tiers.py`)
+
+The scan runs inside a higher tier, on that audience's database, and checks every lower
+store in it for material that store's readers mustn't see.
+
+- **For each store of tier L** in the database, the hidden tiers are the ones the
+  database holds that L doesn't see. Hidden material is every model value, key and id
+  those tiers added (at least 3 characters) and every five-word passage cut from it. A
+  YAML file in L's store is read by its keys, scalars and comments, and any other file
+  by its lines. A line **matches** when:
+  - its whole text equals hidden material (`value`);
+  - a run of up to 4 words in it equals a hidden value, key or id, such as an id inside a
+    sentence (`token`); or
+  - a five-word passage equals a hidden one, counting words across line ends, so a
+    passage that wraps still matches. The finding is on the line where the passage
+    starts (`passage`).
+- **No exemptions are inferred.** Field names a hidden tier's new records share with the
+  stores below (`senses`, `gloss`) match like anything else until a person accepts them.
+  An exemption worked out from the lower store would let that store exempt a leaked term
+  just by using it.
+- **One finding per line.** A finding gives the tier and store, the file, the line, the
+  kinds of match, and every hidden tier matched, most restrictive first. It never gives
+  the text, from either side.
+- **Accepted matches.** A person decides once that a matched item is shared, not leaked.
+  Decisions are kept in the scanning tier's store, in `.lectkit/accepted_matches.yaml`,
+  as a list of `{text, tier, reason, by, at}`. Here `text` is the matched item and `tier`
+  is the lower tier whose stores the decision covers. A finding is accepted only when
+  every item matched on its line is accepted. Only the scanning tier's own `.lectkit/` is
+  left out of the database. A lower store's `.lectkit/` is read, scanned and digested
+  like any other folder, so it can't hide material. Accepted findings are still counted
+  and are listed with `--show-accepted`.
+- **Fresh or refused.** The database records a digest of every store it read. The scan
+  recomputes them and refuses to run if any store has changed since the build.
+- **Where the report goes.** The report is printed, or written under the scanning tier's
+  own `.lectkit/` folder (which the database doesn't read, so the report can't make it
+  stale) or outside every store. It is never written into a lower store, never committed
+  there, and never pasted into a lower repository's pull request or issue.
+- **Exit codes.** 0 means no unaccepted findings, 1 means findings, and 3 means the scan
+  couldn't run (a stale database, or a bad accept file).
+- **What it can't see.** Material written fresh in the lower store, which doesn't copy
+  anything the higher tier holds, can't match. A scan that passes found nothing it was
+  given to look for. It isn't a clearance.
 
 ## Screening open material: containment
 
