@@ -171,7 +171,9 @@ def test_cli(tmp_path, capsys):
     args = ["--register", str(reg_file), "--db", str(out)]
     assert cli.main(args) == 1
     printed = capsys.readouterr().out
-    assert "[MATCH] fx-open: fx-notes.md:2: token matches fx-c material" in printed
+    import re as _re
+    assert _re.search(r"\[MATCH\] [0-9a-f]{12} fx-open: fx-notes.md:2: token matches fx-c material",
+                      printed)
     for word in ("glossqy", "alpha", "stemb", "stemB", "fxkeyqz"):
         assert word not in printed
     # A report goes under the scanning tier's .lectkit/ or outside every store, never lower.
@@ -181,3 +183,151 @@ def test_cli(tmp_path, capsys):
     assert cli.main(args + ["--out", str(tmp_path / "stores" / "fx-c" / ".lectkit" / "reports"
                                          / "fx-report.txt")]) == 1
     assert cli.main(args + ["--out", str(tmp_path / "reports" / "fx-report.txt")]) == 1
+
+
+# --- reviews of exact entries ---------------------------------------------------------
+
+def scan_with_reviews(tmp_path, files):
+    reg, _, out = setup(tmp_path, files)
+    store = tmp_path / "stores" / "fx-c"
+    with adb.AudienceDB(out) as db:
+        return scan.scan(db, reg, FIELD_NAMES, scan.load_reviews(store / scan.REVIEW_FILE, reg)), reg, store
+
+
+def review(store, f):
+    scan.record_review(store, f, "checked: shared word in this note", "human:fx-reviewer",
+                       "2026-01-01T00:00:00+00:00")
+
+
+def notes(text):
+    return with_files(**{"fx-open": {"fx-notes.md": text}})
+
+
+def test_a_reviewed_entry_stays_cleared_while_it_doesnt_change(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    f = find(rep, "fx-open", "fx-notes.md", 1)
+    assert not f.cleared
+    review(store, f)
+    rep, _, _ = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    assert find(rep, "fx-open", "fx-notes.md", 1).reviewed
+    assert where(rep) == set()
+
+
+def test_moving_the_entry_keeps_the_review(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    review(store, find(rep, "fx-open", "fx-notes.md", 1))
+    rep, _, _ = scan_with_reviews(tmp_path, notes("a new first line\nsee stemB-s1 here\n"))
+    assert find(rep, "fx-open", "fx-notes.md", 2).reviewed
+
+
+def test_changing_the_entry_needs_a_new_review(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    review(store, find(rep, "fx-open", "fx-notes.md", 1))
+    rep, _, _ = scan_with_reviews(tmp_path, notes("see stemB-s1 there\n"))
+    assert ("fx-open", "fx-notes.md", 1) in where(rep)
+
+
+def test_a_new_hidden_match_on_the_entry_needs_a_new_review(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    review(store, find(rep, "fx-open", "fx-notes.md", 1))
+    files = notes("see stemB-s1 here\n")
+    files["fx-c"]["fx-c-more.yaml"] = "entries:\n- id: fxsee\n  w: see stemB-s1 here\n"
+    rep, _, _ = scan_with_reviews(tmp_path, files)
+    assert ("fx-open", "fx-notes.md", 1) in where(rep)
+
+
+def test_the_same_text_in_another_file_isnt_covered(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    review(store, find(rep, "fx-open", "fx-notes.md", 1))
+    files = notes("see stemB-s1 here\n")
+    files["fx-open"]["fx-other.md"] = "see stemB-s1 here\n"
+    rep, _, _ = scan_with_reviews(tmp_path, files)
+    assert where(rep) == {("fx-open", "fx-other.md", 1)}
+
+
+def test_a_review_names_a_person(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    f = find(rep, "fx-open", "fx-notes.md", 1)
+    with pytest.raises(scan.ScanError, match="person"):
+        scan.record_review(store, f, "fine", "agent:fx-model", "2026-01-01T00:00:00+00:00")
+    with pytest.raises(scan.ScanError, match="reason"):
+        scan.record_review(store, f, " ", "human:fx-reviewer", "2026-01-01T00:00:00+00:00")
+    (store / scan.REVIEW_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (store / scan.REVIEW_FILE).write_text(
+        f"- {{tier: fx-open, rel: fx-notes.md, entry: {f.entry}, matched: [], reason: r,"
+        f" by: 'agent:fx-model', at: t}}\n", encoding="utf-8")
+    reg = tiers.load(tmp_path / "fx-tiers.yaml")
+    with pytest.raises(scan.ScanError, match="person"):
+        scan.load_reviews(store / scan.REVIEW_FILE, reg)
+
+
+def test_review_cli(tmp_path, capsys):
+    import re as _re
+    import review_finding
+    import scan_tiers as cli
+    _, reg_file, out = setup(tmp_path, notes("see stemB-s1 here\n"))
+    kit = tmp_path / "stores" / "fx-c" / scan.ACCEPT_FILE
+    kit.parent.mkdir(parents=True, exist_ok=True)
+    kit.write_text("".join(
+        f"- {{text: {t}, tier: {low}, reason: field name, by: 'human:fx-reviewer', at: t}}\n"
+        for low, ts in FIELD_NAMES.items() for t in sorted(ts)), encoding="utf-8")
+    adb.build(tiers.load(reg_file), "fx-c", out)      # rebuild: unaffected by fx-c's .lectkit
+    args = ["--register", str(reg_file), "--db", str(out)]
+    assert cli.main(args) == 1
+    fid = _re.search(r"\[MATCH\] (\w+) fx-open: fx-notes.md:1", capsys.readouterr().out).group(1)
+    assert review_finding.main(args + ["--id", fid, "--reason", "shared", "--by", "human:fx-reviewer"]) == 0
+    assert cli.main(args) == 0
+    assert "1 reviewed" in capsys.readouterr().out
+    assert review_finding.main(args + ["--id", "nope", "--reason", "x", "--by", "human:x"]) == 3
+
+
+# --- second review ------------------------------------------------------------------
+
+def test_a_hidden_item_changing_tier_needs_a_new_review(tmp_path):
+    files = notes("fxshiftq here\n")
+    files["fx-a"]["fx-a-more.yaml"] = "entries:\n- id: fxa1\n  w: fxshiftq\n"
+    rep, _, store = scan_with_reviews(tmp_path, files)
+    f = find(rep, "fx-open", "fx-notes.md", 1)
+    assert f.hidden == ("fx-a",)
+    review(store, f)
+    files = notes("fxshiftq here\n")
+    files["fx-c"]["fx-c-more.yaml"] = "entries:\n- id: fxc1\n  w: fxshiftq\n"   # now at fx-c
+    rep, _, _ = scan_with_reviews(tmp_path, files)
+    assert ("fx-open", "fx-notes.md", 1) in where(rep)
+
+
+def test_a_passage_review_covers_every_line_it_spans(tmp_path):
+    files = notes("it said alpha beta gamma\ndelta epsilon, then\n")
+    rep, _, store = scan_with_reviews(tmp_path, files)
+    review(store, find(rep, "fx-open", "fx-notes.md", 1))
+    rep, _, _ = scan_with_reviews(tmp_path, notes("it said alpha beta gamma\ndelta epsilon, and more\n"))
+    assert ("fx-open", "fx-notes.md", 1) in where(rep)       # line 2 changed under the passage
+
+
+def test_a_copied_line_is_a_new_finding(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    review(store, find(rep, "fx-open", "fx-notes.md", 1))
+    rep, _, _ = scan_with_reviews(tmp_path, notes("see stemB-s1 here\nsee stemB-s1 here\n"))
+    assert where(rep) == {("fx-open", "fx-notes.md", 2)}
+
+
+def test_ids_and_review_digests_are_keyed_by_the_scanning_tier(tmp_path):
+    rep, _, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\n"))
+    f = find(rep, "fx-open", "fx-notes.md", 1)
+    key = (store / scan.KEY_FILE).read_bytes()
+    assert len(key) == 32
+    # Someone without the key can't reproduce the id from the line and a guessed word.
+    guess = scan._digest(f.tier, f.rel, f.entry, str(f.nth), scan._digest("stemb s1"))[:12]
+    assert f.id != guess and "stemb" not in f.id
+    # The key never enters the database or any lower store.
+    assert not list((tmp_path / "stores" / "fx-open").rglob("scan_key"))
+
+
+def test_recording_a_review_keeps_the_file_valid(tmp_path):
+    rep, reg, store = scan_with_reviews(tmp_path, notes("see stemB-s1 here\nglossqy\n"))
+    path = store / scan.REVIEW_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[]", encoding="utf-8")              # flow style, no trailing newline
+    review(store, find(rep, "fx-open", "fx-notes.md", 1))
+    review(store, find(rep, "fx-open", "fx-notes.md", 2))
+    assert len(scan.load_reviews(path, reg)) == 2

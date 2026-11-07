@@ -5,7 +5,10 @@ tier, on that audience's database. Findings name a store, file and line, never t
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,6 +20,8 @@ from lectkit.tiers import Register
 MIN_CHARS = 3
 MAX_TOKENS = 4      # hidden values and ids up to this many words are also found inside lines
 ACCEPT_FILE = f"{KIT_DIR}/accepted_matches.yaml"
+REVIEW_FILE = f"{KIT_DIR}/reviewed_findings.yaml"
+KEY_FILE = f"{KIT_DIR}/scan_key"   # a secret of the scanning tier; never leaves its store
 
 
 class ScanError(ValueError):
@@ -30,7 +35,16 @@ class Finding:
     line: int
     matches: tuple[str, ...]     # kinds of match: value, token, passage
     hidden: tuple[str, ...]      # every hidden tier matched, most restrictive first
-    accepted: bool = False
+    entry: str = ""              # digest of the lower text the finding covers
+    matched: tuple[str, ...] = ()  # keyed digests of the hidden items (and tiers) matched
+    nth: int = 1                 # which copy of this entry in the file, counting from 1
+    id: str = ""                 # keyed, so it can't be used to test guesses at hidden text
+    accepted: bool = False       # covered by accepted matches
+    reviewed: bool = False       # covered by a person's review of this exact entry
+
+    @property
+    def cleared(self) -> bool:
+        return self.accepted or self.reviewed
 
 
 @dataclass
@@ -41,7 +55,32 @@ class ScanReport:
 
     @property
     def open_findings(self) -> list[Finding]:
-        return [f for f in self.findings if not f.accepted]
+        return [f for f in self.findings if not f.cleared]
+
+
+def _digest(*parts: str) -> str:
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def _mac(key: bytes, *parts: str) -> str:
+    return hmac.new(key, "\x1f".join(parts).encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def scan_key(store: Path) -> bytes:
+    """The scanning tier's secret for finding ids and review digests, made on first use.
+
+    Without it, an id or a review digest could be recomputed from guesses at hidden text
+    by anyone holding the report, which would confirm the guess."""
+    f = store / KEY_FILE
+    if f.is_file():
+        key = f.read_bytes()
+        if len(key) != 32:
+            raise ScanError(f"{KEY_FILE} is damaged; delete it and review findings again")
+        return key
+    f.parent.mkdir(parents=True, exist_ok=True)
+    key = secrets.token_bytes(32)
+    f.write_bytes(key)
+    return key
 
 
 def _words(text: str) -> list[str]:
@@ -70,6 +109,62 @@ def load_accepted(path: Path, reg: Register) -> dict[str, set[str]]:
     return out
 
 
+Review = tuple  # (tier, rel, entry, frozenset(matched), nth)
+REVIEW_KEYS = {"id", "tier", "rel", "entry", "matched", "nth", "reason", "by", "at"}
+
+
+def load_reviews(path: Path, reg: Register) -> set[Review]:
+    """People's reviews of exact lower entries. Absent means none."""
+    if not path.is_file():
+        return set()
+    try:
+        rows = yamlio.load_file(path)
+    except yamlio.YamlError:
+        raise ScanError(f"{REVIEW_FILE} is not valid YAML") from None
+    if rows is None:
+        return set()
+    if not isinstance(rows, list):
+        raise ScanError(f"{REVIEW_FILE} must be a list")
+    out = set()
+    for i, r in enumerate(rows):
+        ok = (isinstance(r, dict) and set(r) == REVIEW_KEYS
+              and r["tier"] in reg.tiers and isinstance(r["rel"], str)
+              and isinstance(r["entry"], str) and isinstance(r["matched"], list)
+              and all(isinstance(m, str) for m in r["matched"])
+              and isinstance(r["nth"], int) and not isinstance(r["nth"], bool) and r["nth"] >= 1
+              and isinstance(r["by"], str) and r["by"].startswith("human:"))
+        if not ok:
+            raise ScanError(f"{REVIEW_FILE} entry {i + 1} needs exactly id, tier, rel, entry, "
+                            f"matched, nth, reason, at, and by naming a person (human:...)")
+        out.add((r["tier"], r["rel"], r["entry"], frozenset(r["matched"]), r["nth"]))
+    return out
+
+
+def record_review(store: Path, f: Finding, reason: str, by: str, at: str) -> Path:
+    """Append a person's review of one finding to the scanning tier's review file."""
+    if not by.startswith("human:"):
+        raise ScanError("a review is recorded for a person: by must be human:<name or role>")
+    if not reason.strip():
+        raise ScanError("a review needs a reason")
+    path = store / REVIEW_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    import yaml
+    rows = []
+    if path.is_file():
+        try:
+            rows = yamlio.load_file(path) or []
+        except yamlio.YamlError:
+            raise ScanError(f"{REVIEW_FILE} is not valid YAML") from None
+        if not isinstance(rows, list):
+            raise ScanError(f"{REVIEW_FILE} must be a list")
+    rows.append({"id": f.id, "tier": f.tier, "rel": f.rel, "entry": f.entry,
+                 "matched": list(f.matched), "nth": f.nth, "reason": reason, "by": by, "at": at})
+    tmp = path.with_name(path.name + ".writing")
+    tmp.write_text(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
 def check_fresh(db: AudienceDB, reg: Register) -> None:
     for t in db.tiers:
         store = reg.tiers[t].store_path if t in reg.tiers else None
@@ -83,17 +178,23 @@ def _key(norm: str) -> str:
     return " ".join(_words(norm)) or norm
 
 
-def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = None
-         ) -> ScanReport:
+def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = None,
+         reviewed: set[Review] | None = None) -> ScanReport:
     """Every line of every lower store that matches material hidden from that store.
 
     A line matches when its whole text equals hidden material, when a run of up to
     MAX_TOKENS words in it equals a short hidden value or id, or when a five-word
-    passage, counted across line ends in the file, equals one in hidden material."""
+    passage, counted across line ends in the file, equals one in hidden material.
+
+    A finding is cleared by accepted matches (every item it matched is accepted for that
+    tier), or by a person's review of that exact entry: the same file, the same text on
+    the line, and the same hidden items matched. Change either and it needs review again."""
     if db.audience not in reg.tiers or set(db.tiers) - set(reg.tiers):
         raise ScanError("the database was built from a different register")
     check_fresh(db, reg)
     accepted = accepted or {}
+    reviewed = reviewed or set()
+    key = scan_key(reg.tiers[db.audience].store_path)
     rank = {t: i for i, t in enumerate(reg.tiers)}
     rep = ScanReport(audience=db.audience)
     for low in db.tiers:
@@ -115,18 +216,22 @@ def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = N
             hidden_passages.setdefault(norm, set()).add(tier)
 
         hits: dict[tuple[str, int], set[tuple[str, str, str]]] = {}
+        spans: dict[tuple[str, int], set[int]] = {}
 
-        def hit(rel, line, kind, tiers, matched):
+        def hit(rel, line, kind, tiers, matched, lines=()):
             for t in tiers:
                 hits.setdefault((rel, line), set()).add((kind, t, matched))
+            spans.setdefault((rel, line), {line}).update(lines)
 
         streams: dict[str, list[tuple[str, int]]] = {}
+        texts: dict[tuple[str, int], list[str]] = {}
         for rel, line, kind, text, norm in db.con.execute(
                 "SELECT rel, line, kind, text, norm FROM source_value WHERE tier = ? "
                 "ORDER BY rel, line, rowid", (low,)):
             structured = Path(rel).suffix.lower() in YAML_SUFFIXES
             if structured and kind == "line":
                 continue         # a YAML file is read by its keys, scalars and comments
+            texts.setdefault((rel, line), []).append(norm)
             k = _key(norm)
             if len(norm) >= MIN_CHARS and k in values:
                 hit(rel, line, "value", values[k], k)
@@ -141,15 +246,24 @@ def scan(db: AudienceDB, reg: Register, accepted: dict[str, set[str]] | None = N
             for i in range(len(stream) - PASSAGE_WORDS + 1):
                 p = " ".join(x for x, _ in stream[i:i + PASSAGE_WORDS])
                 if p in hidden_passages:
-                    hit(rel, stream[i][1], "passage", hidden_passages[p], p)
+                    covered = {ln for _, ln in stream[i:i + PASSAGE_WORDS]}
+                    hit(rel, stream[i][1], "passage", hidden_passages[p], p, covered)
 
         ok = {_key(normalise(x)) for x in accepted.get(low, set())}
+        seen: dict[tuple, int] = {}
         for (rel, line), ms in sorted(hits.items()):
+            # The entry is every line the finding covers, so a passage's later lines count.
+            entry = _digest(*(t for ln in sorted(spans[(rel, line)]) for t in texts.get((rel, ln), [])))
+            matched = tuple(sorted({_mac(key, "item", m[1], m[2]) for m in ms}))
+            nth = seen[(rel, entry, matched)] = seen.get((rel, entry, matched), 0) + 1
             rep.findings.append(Finding(
                 low, rel, line,
                 matches=tuple(sorted({m[0] for m in ms})),
                 hidden=tuple(sorted({m[1] for m in ms}, key=lambda t: -rank[t])),
-                accepted=all(m[2] in ok for m in ms)))
+                entry=entry, matched=matched, nth=nth,
+                id=_mac(key, "id", low, rel, entry, str(nth), *matched)[:12],
+                accepted=all(m[2] in ok for m in ms),
+                reviewed=(low, rel, entry, frozenset(matched), nth) in reviewed))
     return rep
 
 

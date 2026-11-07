@@ -187,3 +187,14 @@ def check_stores(reg: Register) -> tuple[list[str], list[str]]:
         elif t.remote == "none" and remotes:
             problems.append(f"{t.id}: store has {len(remotes)} git remote(s) but its tier allows none")
     return problems, absent
+
+
+def with_store(reg: Register, tier: str, path: Path) -> Register:
+    """A copy of the register in which `tier`'s store is `path`, such as an export of a
+    store's staged tree. The register itself is unchanged."""
+    from dataclasses import replace
+    if tier not in reg.tiers:
+        raise KeyError(tier)
+    out = Register(path=reg.path, tiers=dict(reg.tiers), problems=list(reg.problems))
+    out.tiers[tier] = replace(reg.tiers[tier], store_path=Path(path).resolve())
+    return out

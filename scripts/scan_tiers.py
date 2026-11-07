@@ -5,8 +5,9 @@ Usage:
 
 Run inside the higher tier (knowledge/spec_classification.md, "Cross-tier scan"), on a
 database built by build_audience_db.py. Each finding names a tier, file and line, and
-never any text. Accepted matches are read from the scanning tier's own store, in
-.lectkit/accepted_matches.yaml. --out may name a file under the scanning tier's own
+never any text, with an id a person can review it by (review_finding.py). Accepted
+matches and reviews are read from the scanning tier's own store, in
+.lectkit/accepted_matches.yaml and .lectkit/reviewed_findings.yaml. --out may name a file under the scanning tier's own
 .lectkit/ folder or outside every store, never in a lower one.
 
 Exit 0: no unaccepted findings. 1: findings. 3: the scan couldn't run.
@@ -41,20 +42,22 @@ def main(argv: list[str] | None = None) -> int:
                 return 3
             store = reg.tiers[db.audience].store_path
             accepted = scan.load_accepted(store / scan.ACCEPT_FILE, reg)
-            rep = scan.scan(db, reg, accepted)
+            reviewed = scan.load_reviews(store / scan.REVIEW_FILE, reg)
+            rep = scan.scan(db, reg, accepted, reviewed)
     except (scan.ScanError, audience_db.BuildError) as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 3
     lines = []
     for f in rep.findings:
-        if f.accepted and not a.show_accepted:
+        if f.cleared and not a.show_accepted:
             continue
-        mark = "ACCEPTED" if f.accepted else "MATCH"
-        lines.append(f"[{mark}] {f.tier}: {f.rel}:{f.line}: {'/'.join(f.matches)} matches "
-                     f"{', '.join(f.hidden)} material")
-    n_acc = len(rep.findings) - len(rep.open_findings)
+        mark = "REVIEWED" if f.reviewed else "ACCEPTED" if f.accepted else "MATCH"
+        lines.append(f"[{mark}] {f.id} {f.tier}: {f.rel}:{f.line}: {'/'.join(f.matches)} "
+                     f"matches {', '.join(f.hidden)} material")
+    n_acc = sum(1 for f in rep.findings if f.accepted and not f.reviewed)
+    n_rev = sum(1 for f in rep.findings if f.reviewed)
     lines.append(f"scanned {', '.join(rep.scanned) or 'no lower store'} from {rep.audience}: "
-                 f"{len(rep.open_findings)} finding(s), {n_acc} accepted")
+                 f"{len(rep.open_findings)} finding(s), {n_rev} reviewed, {n_acc} accepted")
     text = "\n".join(lines) + "\n"
     if a.out:
         a.out.parent.mkdir(parents=True, exist_ok=True)

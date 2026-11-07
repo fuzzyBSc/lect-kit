@@ -12,7 +12,7 @@ generated: {by: agent:claude-opus-5.5, at: 2026-11-07T21:00:00+10:00}
 Agent-facing build detail for classification. Carries out `PRINCIPLES.md` §4. The human
 explanation is `docs/classification.md`. If the two disagree, stop and raise it.
 
-The register file, layered files, the audience database and the cross-tier scan are built so far.
+The register file, layered files, the audience database, the cross-tier scan and the proposal scan are built so far.
 
 Classification here means who may see something under a community's own rules. It is a
 different thing from evidence quality or review state, and the kit keeps them apart.
@@ -314,6 +314,27 @@ store in it for material that store's readers mustn't see.
   left out of the database. A lower store's `.lectkit/` is read, scanned and digested
   like any other folder, so it can't hide material. Accepted findings are still counted
   and are listed with `--show-accepted`.
+- **Reviewed findings.** When a person reviews a finding from the report and decides the
+  lower entry is fine, `review_finding.py` saves that decision in the scanning tier's
+  `.lectkit/reviewed_findings.yaml`, by the finding's id. It records the lower tier, the
+  file, a digest of the lower text the finding covers (every line, for a passage that
+  spans lines), which copy of that text in the file it is, keyed digests of the hidden
+  items matched and their tiers, the reason, the person (`by: human:...`) and the time.
+  A later scan clears that finding while all of these are unchanged, even if the entry
+  moves to another line. The finding comes back for review in any of these cases:
+  - the lower text changes, including a later line of a passage;
+  - it matches a different hidden item;
+  - a matched item moves to another tier;
+  - the line is copied again.
+  The same text in another file isn't covered.
+- **Ids and review digests are keyed.** They're computed with a secret kept in the
+  scanning tier's store (`.lectkit/scan_key`), made on first use and never read into a
+  database. Without that key, someone holding a report couldn't confirm a guess at hidden
+  text by recomputing an id. The review file and the key are as restricted as the
+  scanning tier.
+- **What a review proves.** `by: human:...` records who is responsible. It doesn't
+  authenticate them: anything that can write the scanning tier's store could add a
+  review. The guarantee is who can write that store.
 - **Fresh or refused.** The database records a digest of every store it read. The scan
   recomputes them and refuses to run if any store has changed since the build.
 - **Where the report goes.** The report is printed, or written under the scanning tier's
@@ -325,6 +346,50 @@ store in it for material that store's readers mustn't see.
 - **What it can't see.** Material written fresh in the lower store, which doesn't copy
   anything the higher tier holds, can't match. A scan that passes found nothing it was
   given to look for. It isn't a clearance.
+
+### Proposal scan (built: `lectkit/proposal.py`, `scripts/scan_proposal.py`, `scripts/screen_for_tier.py`)
+
+Before a commit lands in a store of tier L, every higher tier present on the machine
+screens what L would hold after the commit.
+
+- **The proposal is the whole staged tree**, not the diff: the tree `git write-tree`
+  names. A leak already committed is caught with the new one, and everything a verdict
+  mentions is part of what's proposed. The tree is exported **by name, blob by blob from
+  the object store**, to a temporary folder outside every store, then scanned and
+  deleted. Index flags (skip-worktree, sparse checkout), filters, encodings and
+  line-ending settings therefore can't change what's scanned. The index can't change
+  between naming the tree and exporting it, either. A symbolic link or a submodule in the
+  tree stops the scan.
+- **Higher tiers are every tier whose `sees` list names L.** For each one whose store is
+  on the machine, a separate process (`screen_for_tier.py`) builds that tier's audience
+  database in a temporary folder, with L's store replaced by the export, scans L's store
+  only, and deletes the database. Tiers closed to each other are never screened in one
+  process. A higher tier whose store is absent, or isn't a checkout of its own (an empty
+  folder at that path, say), is a **gap**, reported by name, never a pass. Hooks run locally, by someone who holds the classified material they need, so a
+  gap blocks: no evidence is written.
+- **What crosses back is a verdict, filtered.** The runner accepts only
+  `{screened_for, outcome, basis, by, at, tree, locations}` from each process, and drops
+  anything else. `outcome` is `hold` or `no_match`. A pattern scan can't clear anything,
+  so there's no `clear` (see "What crosses back" below). On `hold`, `locations` lists
+  file and line in L's proposed tree, with nothing else, so the answer stays scoped to
+  the proposal and adds no higher-tier material. A location must be a path in the
+  proposed tree and a line from 1.
+- **Evidence.** When every higher tier returns `no_match`, the runner writes an evidence record into L's git directory
+  (`.git/lectkit/evidence/<tree>.json`), which is never committed. It holds the tree, the
+  tiers screened, a digest of the register, a digest of each screened higher
+  store and the time. The commit hooks (next) recompute the digests, so evidence goes
+  stale when the register or a higher store changes.
+- **What evidence proves.** It's an unsigned file that anything running as the same user
+  could write. It shows that the scan ran. It doesn't stop someone who means to get round
+  it, and the hooks treat it that way.
+- **Process isolation, and its limits.** Each screen runs as its own Python process,
+  started with `-E` so environment variables can't redirect it. (`-I` would also drop
+  user site-packages, where the kit's dependencies may be installed.) Its temporary
+  database lives in the system temporary folder and is deleted when the screen ends.
+  Deletion is best effort: a killed screen can leave one behind, readable by the same
+  user.
+- **Exit codes.** 0 means every higher tier returned `no_match`. 1 means a hold. 2 means a
+  higher tier wasn't screened. 3 means the scan couldn't run.
 
 ## Screening open material: containment
 
