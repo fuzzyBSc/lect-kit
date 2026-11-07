@@ -4,7 +4,7 @@ title: Content procedure
 description: What may enter this public repository, the pre-commit steps, and how the content checker behaves.
 tags: [content, process]
 status: draft
-generated: {by: agent:claude-opus-5.5, at: 2026-11-07T00:00:00+10:00}
+generated: {by: agent:claude-opus-5.5, at: 2026-11-07T18:00:00+10:00}
 ---
 
 # Content procedure
@@ -53,9 +53,18 @@ If unsure, leave it out and ask the project custodian.
 - Deny-lists are read only from run-time paths. Never copy, cache or log them, and never
   write one into this repository.
 - Plain text lists: one term per line, `#` comments.
-- JSON: only strings under `term`, `form`, `word`, `headword`, `lemma` keys (terms) or
+- JSON or YAML (`.yaml`, `.yml`): only strings under `term`, `form`, `word`, `headword`,
+  `lemma` keys (terms), `variant`, `variants` keys (each matched as a whole word) or
   `pattern`, `regex` keys (case-insensitive regexes) count. A bare list counts as terms.
-  Labels and notes are ignored, so they don't produce false hits.
+  Every other key, such as labels, notes, ids and flags, is ignored, so none of them
+  produces false hits. A variant or pattern that isn't a valid regex is matched literally
+  rather than dropped. Any other key, such as one a list uses to exclude a look-alike word,
+  is ignored, so this screen can hit more often than a list's own tooling, never less.
+- Terms and variants match as whole words even when they hold or sit next to
+  punctuation, and both the list and the files are NFC-normalised. YAML is read with every
+  value as text.
+- A path that doesn't exist and a file that can't be decoded are errors. A directory is
+  expanded.
 - Generic checks: honorific followed by a capitalised name, tape-style identifiers,
   personal paths, email addresses.
 - A hit prints file and line only, never the matched text. Exit 1 on any hit.

@@ -19,11 +19,18 @@ Your community sets up its own levels of access, which the kit calls tiers. The 
 comes with none of its own. For each tier you say:
 
 - its name,
-- which other tiers its readers may also see, and
+- which other tiers its readers may also see,
+- where its material is kept, and whether that place may be copied to a server or must
+  stay only on the computers of people allowed to read it, and
 - who may decide that something belongs in it.
 
 Tiers don't have to form a ladder. Two tiers can each see the open material and be
 closed to each other.
+
+You write this down once, in a small file the kit calls the tier register. The kit
+checks the file: that every tier it mentions exists, that each tier's list of what its
+readers see is complete, and that a tier meant to stay off servers really has nowhere to
+copy to. It doesn't decide what your tiers should be.
 
 Material nobody has read yet isn't treated as open. It waits, unused, until someone has
 read it and decided its tier. A computer search for likely restricted words can raise a

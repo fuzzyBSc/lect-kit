@@ -4,7 +4,7 @@ title: Classification spec
 description: Build detail for community-defined tiers, per-tier paradigms, per-audience builds and leak checks.
 tags: [classification]
 status: draft
-generated: {by: agent:claude-opus-5.5, at: 2026-11-07T00:00:00+10:00}
+generated: {by: agent:claude-opus-5.5, at: 2026-11-07T18:00:00+10:00}
 ---
 
 # Classification spec
@@ -12,7 +12,7 @@ generated: {by: agent:claude-opus-5.5, at: 2026-11-07T00:00:00+10:00}
 Agent-facing build detail for classification. Carries out `PRINCIPLES.md` §4. The human
 explanation is `docs/classification.md`. If the two disagree, stop and raise it.
 
-None of it is built yet.
+Only the register file is built so far.
 
 Classification here means who may see something under a community's own rules. It is a
 different thing from evidence quality or review state, and the kit keeps them apart.
@@ -20,20 +20,60 @@ different thing from evidence quality or review state, and the kit keeps them ap
 ## Tiers are the community's
 
 A project declares its tiers in a tier register. The kit has no built-in tier names.
-Examples and tests use abstract ones (`tier-open`, `tier-a`, `tier-b`).
+The Japanese demo register (`examples/demo/japanese/jp-tiers.yaml`) uses illustrative ones (`jp-open`, `jp-a`, `jp-b`).
 
 Each tier entry has:
 
 - An ID and a display name chosen by the community.
 - **Sees:** the tiers a reader of this tier may also see. This is a plain list, not a
   ranking, so a community can describe tiers that are nested, side by side, or closed to
-  each other. For example, `tier-a` and `tier-b` might each see `tier-open` but not each
+  each other. For example, `jp-a` and `jp-b` might each see `jp-open` but not each
   other.
 - Where the tier's material is stored (see below).
 - Who may classify into it, as the community decides.
 
 The kit checks that the register is consistent. For example, every tier named in a
 **sees** list must exist. It doesn't decide what the tiers should be.
+
+### Register file (built: `lectkit/tiers.py`, `scripts/check_tier_register.py`)
+
+The register is one YAML file in the project, at a path the project chooses:
+
+```yaml
+register: 1
+tiers:
+  - id: jp-open
+    name: Open
+    sees: []
+    store: {path: ../stores/jp-open, remote: allowed}
+  - id: jp-a
+    name: Tier A
+    sees: [jp-open]
+    store: {path: ../stores/jp-a, remote: none}
+    classifiers: ["human:jp-a-reviewers"]
+```
+
+- `store.path` and `store.remote` are both required. `store.path` is relative to the
+  register file. `store.remote` is `allowed` or `none`; a missing or unknown value is an
+  error, and the tier is treated as `none` meanwhile.
+  A tier with `remote: none` is kept only on machines its readers hold. Its store can't
+  have a git remote, and the check fails if it has one.
+- `classifiers` is optional: the actors who may classify into the tier.
+- **Sees is written out in full.** If `jp-b` sees `jp-a` and `jp-a` sees
+  `jp-open`, then `jp-b` must list both. The check fails on a missing one rather than
+  inferring it, so anyone reading the file can see exactly who reads what.
+- Two tiers are **closed** to each other when neither sees the other. The check reports
+  the closed pairs, because every separation check uses them.
+- Two tiers can't share a store, one tier's store can't lie inside another's, and a tier
+  can't list itself.
+- `python scripts/check_tier_register.py <register> [--stores]` runs the checks. With
+  `--stores` it also opens each store that exists on disk and checks its remotes against
+  `store.remote`. A store must be the top of its own git checkout; a folder inside some
+  other repository fails. A store that isn't present is reported, not passed, and so is a
+  machine without git. Stores aren't checked while the register itself has problems.
+
+A **higher** tier's scanner reads the stores its `sees` list names. Nothing reads a store
+in the other direction.
 
 There is one more state, separate from the tiers: **unread**. Material nobody has read
 and classified yet is unread. No build uses it, whatever tier it might turn out to be.
@@ -247,7 +287,6 @@ to the community's own process.
 
 - Descriptors for Local Contexts BC Labels and Notices, and for other schemes communities ask for.
 
-- How the tier register is written and where it lives.
 - How a restricted tier refers to a general record without the general store holding
   any trace of the reference.
 - Whether unread material should get a build of its own, so the people screening it can

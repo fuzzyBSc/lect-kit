@@ -1,0 +1,32 @@
+# Tier register for the Japanese demo project (lect id: jp).
+# The tiers are illustrative access levels for exercising the register checks. They make
+# no claim that any Japanese knowledge is restricted.
+# jp-open is read by everyone; jp-a and jp-b each see open; jp-c sees open and b;
+# jp-p and jp-q are peers over open, a and b, closed to each other.
+register: 1
+tiers:
+  - id: jp-open
+    name: Open
+    sees: []
+    store: {path: stores/jp-open, remote: allowed}
+  - id: jp-a
+    name: Tier A
+    sees: [jp-open]
+    store: {path: stores/jp-a, remote: allowed}
+  - id: jp-b
+    name: Tier B
+    sees: [jp-open]
+    store: {path: stores/jp-b, remote: allowed}
+  - id: jp-c
+    name: Tier C
+    sees: [jp-open, jp-b]
+    store: {path: stores/jp-c, remote: allowed}
+  - id: jp-p
+    name: Peer P
+    sees: [jp-open, jp-a, jp-b]
+    store: {path: stores/jp-p, remote: none}
+    classifiers: ["human:jp-p-reviewers"]
+  - id: jp-q
+    name: Peer Q
+    sees: [jp-open, jp-a, jp-b]
+    store: {path: stores/jp-q, remote: none}
