@@ -24,6 +24,10 @@ what stays in a community's hands.
   language.
 - [The demo](../examples/demo/README.md): why the examples use Japanese.
 
+To see what each part of the kit is meant to do, read the files in `features/`. Each
+one says who a part is for, what it does and why, and lists the behaviours someone could
+check by hand. Every test and every piece of code in the kit answers one of them.
+
 Agents working on the kit keep their own notes in `knowledge/`. You're welcome to look,
 but those notes are written for agents, not as reading.
 

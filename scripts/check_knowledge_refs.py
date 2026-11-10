@@ -1,6 +1,6 @@
 """Check that agent knowledge cites human sources that exist.
 
-Every `knowledge/spec_*.md` and `knowledge/*_procedure.md` must cite at least one
+Every `spec_*.md` and `*_procedure.md` in knowledge/, at any depth, must cite at least one
 `PRINCIPLES.md` section, and every `PRINCIPLES.md §N` cited anywhere in knowledge/
 must exist. Every spec must name a `docs/` page, and that page must exist.
 
@@ -20,7 +20,7 @@ CITE = re.compile(r"`PRINCIPLES\.md`((?:[ ,]*(?:and )?§\d+)+)")
 def main() -> int:
     sections = {int(n) for n in SECTION.findall((ROOT / "PRINCIPLES.md").read_text(encoding="utf-8"))}
     problems = 0
-    for f in sorted((ROOT / "knowledge").glob("*.md")):
+    for f in sorted((ROOT / "knowledge").rglob("*.md")):
         text = f.read_text(encoding="utf-8")
         rel = f.relative_to(ROOT).as_posix()
         cited = {int(n) for m in CITE.finditer(text) for n in re.findall(r"§(\d+)", m.group(1))}

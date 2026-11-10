@@ -18,6 +18,7 @@ should start at `README.md`, `PRINCIPLES.md` and `docs/`.
 | File | Holds |
 |---|---|
 | `content_procedure.md` | What may enter the repository, the pre-commit procedure, how the content checker behaves |
+| `feature_procedure.md` | How Gherkin features link specs to tests and code, and the traceability and coverage checks |
 | `spec_workflow.md` | Build detail for the corpus, paradigm, join, rendering, constructed speech, practice and checking |
 | `spec_classification.md` | Build detail for tiers, per-tier paradigms, per-audience builds and leak checks |
 | `spec_icip.md` | Build detail for withdrawal, attribution, labels, processing location, publication terms, withholding, review gates and export |

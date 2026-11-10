@@ -29,6 +29,7 @@ class Tier:
     remote: str
     classifiers: tuple[str, ...] = ()
     terms: tuple[Path, ...] = ()    # the tier's term registers (deny lists), read at run time
+    screening_only: bool = False    # holds only what the scan matches (lectkit/screening_scope.py)
 
 
 @dataclass
@@ -123,9 +124,14 @@ def load(path: str | Path) -> Register:
             reg.problems.append(f"{tid}: terms must be a list of term-register files")
             terms = []
         term_paths = tuple((path.parent / str(t)).resolve() for t in terms)
+        scope = row.get("scope", "full")
+        if scope not in ("full", "screening"):
+            reg.problems.append(f"{tid}: scope must be full or screening")
+            scope = "full"
         raw_sees[tid] = [str(s) for s in sees]
         reg.tiers[tid] = Tier(tid, str(name or ""), tuple(str(s) for s in sees), store_path,
-                              remote, tuple(str(c) for c in classifiers), term_paths)
+                              remote, tuple(str(c) for c in classifiers), term_paths,
+                              scope == "screening")
 
     for tid, sees in raw_sees.items():
         if tid in sees:

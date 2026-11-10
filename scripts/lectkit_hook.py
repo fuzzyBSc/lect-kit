@@ -3,6 +3,7 @@
 
 Usage (called by git, not by hand):
     python scripts/lectkit_hook.py pre-commit --register REG --tier L --repo DIR
+    python scripts/lectkit_hook.py commit-msg --register REG --tier L --repo DIR MSG_FILE
     python scripts/lectkit_hook.py pre-push --register REG --tier L --repo DIR REMOTE URL < updates
 
 Exit 0 lets git go ahead; anything else refuses.
@@ -19,7 +20,7 @@ from lectkit import hooks  # noqa: E402
 
 def main(argv: list[str] | None = None, stdin=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("hook", choices=["pre-commit", "pre-push"])
+    ap.add_argument("hook", choices=["pre-commit", "commit-msg", "pre-push"])
     ap.add_argument("--register", required=True, type=Path)
     ap.add_argument("--tier", required=True)
     ap.add_argument("--repo", required=True, type=Path)
@@ -28,6 +29,8 @@ def main(argv: list[str] | None = None, stdin=None) -> int:
     say = lambda s: print(s, file=sys.stderr)  # noqa: E731
     if a.hook == "pre-commit":
         return hooks.pre_commit(a.register, a.tier, a.repo, say)
+    if a.hook == "commit-msg":
+        return hooks.commit_msg(a.register, a.tier, a.repo, Path(a.rest[0]), say)
     remote = a.rest[0] if a.rest else ""
     return hooks.pre_push(a.register, a.tier, a.repo, remote,
                           (stdin or sys.stdin).read().splitlines(), say)

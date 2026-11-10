@@ -1,0 +1,9 @@
+format: lexicon
+description: >-
+  A register of lexemes. Each word is identified by its lexeme_id. A higher tier adds
+  senses, variants or other fields to a word a lower tier holds, or adds whole new words.
+  Senses carry no identifier and stack by value.
+files: ["paradigm/lexicon-*.yaml"]
+lists:
+  words: {key: lexeme_id}
+  words/senses: {}

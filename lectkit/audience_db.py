@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
-from lectkit import layers, yamlio
+from lectkit import format_words, layers, shared_lists, yamlio
 from lectkit.tiers import Register
 
 FORMAT = "1"
@@ -29,8 +29,11 @@ KIT_DIR = ".lectkit"   # kit configuration in a store, such as accepted scan mat
 # A tier's recorded decisions about matches. They're scanned as source, but they're neither
 # model material (an accepted text would otherwise match the stores below) nor part of a
 # store's digest (recording a decision would otherwise make every database above stale).
-DECISION_FILES = {f"{KIT_DIR}/accepted_matches.yaml", f"{KIT_DIR}/reviewed_findings.yaml",
-                  f"{KIT_DIR}/scan_key"}
+# Grants, reviews and drafts are the tier's own material and are screened like any other
+# file (project custodian's ruling, 2026-11-09): a grant lives in the granting tier, and as
+# plain lists (lectkit/grants.py) they add only what they release. Only the scan key
+# is kept out: it is a secret, not knowledge.
+DECISION_FILES = {f"{KIT_DIR}/scan_key"}
 # A tier's own list of files in its store that aren't its material (README, agent notes,
 # .gitignore...). The tier decides. It's part of the store's digest, since it changes what
 # the database holds, but it isn't material itself.
@@ -271,8 +274,10 @@ def _inside_a_store(reg: Register, out: Path) -> str | None:
     return None
 
 
-def build(reg: Register, audience: str, out: Path) -> BuildReport:
-    """Build `audience`'s database into the SQLite file `out`, replacing any earlier one."""
+def build(reg: Register, audience: str, out: Path, source_tiers: set[str] | None = None,
+          model_tiers: set[str] | None = None, cache=None) -> BuildReport:
+    """Build `audience`'s database into the SQLite file `out`, replacing any earlier one.
+    A screen limits it to the tiers it needs (`_fill`)."""
     inside = _inside_a_store(reg, out)
     if inside:
         raise BuildError(f"the database can't be written inside a store or a git working "
@@ -300,7 +305,7 @@ def build(reg: Register, audience: str, out: Path) -> BuildReport:
                          ("tiers", " ".join(order), base), ("classification", audience, base)]
                         + [(f"digest:{t}", store_digest(t, reg.tiers[t].store_path, t == audience), t)
                            for t in order])
-        _fill(con, reg, order, audience, rep)
+        _fill(con, reg, order, audience, rep, source_tiers, model_tiers, cache)
         verify(con, order)
         con.commit()
         con.close()
@@ -314,7 +319,17 @@ def build(reg: Register, audience: str, out: Path) -> BuildReport:
 
 
 def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: str,
-          rep: BuildReport) -> None:
+          rep: BuildReport, source_tiers: set[str] | None = None,
+          model_tiers: set[str] | None = None, cache=None) -> None:
+    """Fill the tables. `source_tiers` and `model_tiers` limit which tiers' source rows and
+    model rows are written (all when None). A tier's material depends on its own store
+    only, since a higher tier never restates, so `cache` (material_cache.MaterialCache)
+    can hold it between builds."""
+    source_tiers = set(order) if source_tiers is None else source_tiers
+    model_tiers = set(order) if model_tiers is None else model_tiers
+    cached = {t: cache.get(t) for t in model_tiers} if cache is not None else {}
+    cached = {t: rows for t, rows in cached.items() if rows is not None}
+    rows_of: dict[str, list[tuple]] = {t: [] for t in model_tiers if t not in cached}
     texts: dict[str, dict[str, str]] = {}   # rel -> {tier: text}
     for t in order:
         store = reg.tiers[t].store_path
@@ -332,10 +347,23 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
             texts.setdefault(rel, {})[t] = text
 
     def source(t, rel, line, kind, s):
+        if t not in source_tiers:
+            return
         con.execute("INSERT INTO source_value VALUES (?, ?, ?, ?, ?, ?)",
                     (t, rel, line, kind, s, normalise(s)))
         rep.source_values += 1
 
+    # Format words: the kit's declared field names and enum values (format_words.py). The
+    # kit may not declassify on its own, so the build stops while any tier treats one as
+    # material.
+    fw = format_words.load()
+    clash = format_words.conflicts(reg, fw)
+    if clash:
+        raise BuildError("a lect-kit format word is material in a tier: " + "; ".join(clash))
+    clash = shared_lists.conflicts(reg)
+    if clash:
+        raise BuildError("a shared list entry is material in a tier: " + "; ".join(clash))
+    vocab = fw.all_words()
     exclusions = {t: not_material(reg.tiers[t].store_path) for t in order}
     structure = {t: structure_fields(reg.tiers[t].store_path) for t in order}
     # A tier's term registers are rules, applied as rules by the scan, not text to match.
@@ -344,35 +372,45 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
                       if reg.tiers[t].store_path.resolve() in p.parents} for t in order}
 
     def model(rel, path, kind, s, tier, line=None):
+        if tier not in rows_of:
+            return                        # not wanted, or already held in the cache
         if rel in DECISION_FILES or rel in (EXCLUDE_FILE, STRUCTURE_FILE):
             return                        # decisions are scanned as source, never as model
         if excluded(exclusions[tier], rel):
             return                        # the tier says this file isn't its material
         if not re.search(r"[^\W_]", s):
             return                        # no letter or digit (a fence, a rule): no knowledge
-        cur = con.execute("INSERT INTO model_value (rel, path, kind, text, norm, tier, line) "
-                          "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                          (rel, path, kind, s, normalise(s), tier, line))
-        con.executemany("INSERT INTO model_passage VALUES (?, ?, ?)",
-                        ((x, cur.lastrowid, tier) for x in passages(s)))
-        rep.model_values += 1
+        if kind == "id" and s in vocab and reg.tiers[tier].terms:   # a restricted tier
+            raise BuildError(f"{tier}: {rel}: writes the lect-kit format word '{s}' as an "
+                             f"identifier, so the kit can't treat it as format")
+        rows_of[tier].append((rel, path, kind, s, normalise(s), line, list(passages(s))))
 
     for rel in sorted(texts):
         by_tier = texts[rel]
         is_yaml = Path(rel).suffix.lower() in YAML_SUFFIXES
+        # A copy is read when its source or material is wanted, or when its layers have to
+        # be checked to compose with another tier's copy.
+        # A tier's kit folder holds its own decisions, never a layer of a shared file.
+        kit_file = rel.startswith(KIT_DIR + "/")
+        layered = is_yaml and len(by_tier) > 1 and not kit_file
+        by_tier = {t: x for t, x in by_tier.items()
+                   if t in source_tiers or t in rows_of or layered}
         docs, line_of = {}, {}
-        # Files at one path are one file in layers, lowest tier first. A line, paragraph or
-        # comment a lower tier's copy already holds is restated, so it keeps that tier.
-        held: set[tuple[str, str]] = set()
-
-        def added(kind, text):
-            k = (kind, normalise(text))
-            if k in held:
-                return False
-            held.add(k)
-            return True
-
+        # Everything a tier's own copy of a file writes is that tier's material, whatever a
+        # lower copy holds: a higher tier never restates (project custodian's ruling,
+        # 2026-11-10). Crediting a restated value to the lower tier let a commit make a
+        # higher tier's value its own by writing it into the same file. Repeats within one
+        # tier's copy are recorded once.
         for t in [x for x in order if x in by_tier]:
+            held: set[tuple[str, str]] = set()
+
+            def added(kind, text, held=held):
+                k = (kind, normalise(text))
+                if k in held:
+                    return False
+                held.add(k)
+                return True
+
             text = by_tier[t]
             lines = text.splitlines()
             for n, line in enumerate(lines, 1):
@@ -397,7 +435,7 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
                 docs[t] = yamlio.load(text)
             except yamlio.YamlError as e:
                 what = "holds more than one YAML document" if "more than one" in str(e) else \
-                    "uses an alias" if "alias" in str(e) else "is not valid YAML"
+                    "is not valid YAML"
                 raise BuildError(f"{t}: {rel}: {what}") from None
             line_of[t] = {}
             for n, kind, s, path in items:
@@ -406,7 +444,8 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
         if not is_yaml or rel in DECISION_FILES:
             continue
         try:
-            composed = layers.compose(docs, audience, reg)
+            if not kit_file:
+                layers.compose(docs, audience, reg)    # the layers must still compose
         except layers.LayerError:
             raise BuildError(f"{rel}: doesn't compose across tiers "
                              f"(run compose_layers for the detail)") from None
@@ -414,30 +453,48 @@ def _fill(con: sqlite3.Connection, reg: Register, order: list[str], audience: st
         def at(tier, kind, p):
             return line_of.get(tier, {}).get((kind, layers.where(p)))
 
-        for path, node in _walk(composed.doc, ()):
-            if isinstance(node, dict):
-                # Every key, at the tier that added it: in a free-form mapping a key can be
-                # content. The scanner tells field names from content by what lower tiers hold.
-                for k in node:
-                    kt = composed.tier_of(path + (k,))
-                    if rel in term_files[kt]:
-                        continue          # a term register's keys are its format, not material
-                    model(rel, layers.where(path + (k,)), "key", str(k), kt,
-                          at(kt, "key", path + (k,)))
-                if layers.ID in node and path and isinstance(path[-1], tuple) and path[-1][0] == "id":
-                    t = composed.tier_of(path)
-                    model(rel, layers.where(path), "id", str(node[layers.ID]), t,
-                          at(t, "scalar", path + (layers.ID,)))
-            elif node is not None and not isinstance(node, (list, bool)):
-                t = composed.tier_of(path)
-                # The scalar's own field: its key, or the key of the list it sits in.
-                own = path[-1] if path and isinstance(path[-1], str) else (
-                    path[-2] if len(path) > 1 and isinstance(path[-2], str) else None)
-                if rel in term_files[t] and own in RULE_KEYS:
-                    continue              # a term or pattern: the scan applies it as a rule
-                if own in structure[t] and len(str(node).split()) <= STRUCTURE_MAX_WORDS:
-                    continue              # a short value of a structure field: structure
-                model(rel, layers.where(path), "scalar", str(node), t, at(t, "scalar", path))
+        for t, own_doc in docs.items():
+            _model_doc(rel, t, own_doc, model, at, fw, term_files, structure)
+
+    for t in sorted(model_tiers):
+        rows = cached[t] if t in cached else rows_of[t]
+        if t not in cached and cache is not None:
+            cache.put(t, rows)
+        for rel, path, kind, s, norm, line, ps in rows:
+            cur = con.execute("INSERT INTO model_value (rel, path, kind, text, norm, tier, line) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?)", (rel, path, kind, s, norm, t, line))
+            con.executemany("INSERT INTO model_passage VALUES (?, ?, ?)",
+                            ((x, cur.lastrowid, t) for x in ps))
+            rep.model_values += 1
+
+
+def _model_doc(rel, t, doc, model, at, fw, term_files, structure) -> None:
+    """Every key, id and value tier `t`'s own copy of `rel` writes, as `t`'s material.
+    Identifiers it uses to attach to a lower record are its material too."""
+    for path, node in _walk(doc, ()):
+        if isinstance(node, dict):
+            # Every key: in a free-form mapping a key can be content.
+            for k in node:
+                if rel in term_files[t]:
+                    continue          # a term register's keys are its format, not material
+                if fw.is_key(k):
+                    continue          # a field name the kit's schema declares: format
+                model(rel, layers.where(path + (k,)), "key", str(k), t,
+                      at(t, "key", path + (k,)))
+            if layers.ID in node and path and isinstance(path[-1], tuple) and path[-1][0] == "id":
+                model(rel, layers.where(path), "id", str(node[layers.ID]), t,
+                      at(t, "scalar", path + (layers.ID,)))
+        elif node is not None and not isinstance(node, (list, bool)):
+            # The scalar's own field: its key, or the key of the list it sits in.
+            own = path[-1] if path and isinstance(path[-1], str) else (
+                path[-2] if len(path) > 1 and isinstance(path[-2], str) else None)
+            if rel in term_files[t] and own in RULE_KEYS:
+                continue              # a term or pattern: the scan applies it as a rule
+            if fw.is_value(own, node):
+                continue              # a value the field's declared enumeration fixes
+            if own in structure[t] and len(str(node).split()) <= STRUCTURE_MAX_WORDS:
+                continue              # a short value of a structure field: structure
+            model(rel, layers.where(path), "scalar", str(node), t, at(t, "scalar", path))
 
 
 def _paragraphs(lines: list[str]) -> Iterator[tuple[int, str]]:

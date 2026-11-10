@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lectkit import layers, tiers, yamlio  # noqa: E402
+from lectkit import formats, layers, tiers, yamlio  # noqa: E402
 
 
 def target(store: Path, rel: str) -> Path:
@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rel", required=True)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--origin", action="store_true")
+    ap.add_argument("--schemas", type=Path, default=formats.SCHEMA_DIR,
+                    help="the directory of format schemas (default: the kit's own)")
     a = ap.parse_args(argv)
 
     reg = tiers.load(a.register)
@@ -62,8 +64,24 @@ def main(argv: list[str] | None = None) -> int:
         if not found:
             print(f"[ERROR] no readable store holds {a.rel}", file=sys.stderr)
             return 1
-        composed = layers.compose(found, a.audience, reg)
-    except (layers.LayerError, yamlio.YamlError) as e:
+        maps = {}
+        for t in layers.order(reg, a.audience):
+            store = reg.tiers[t].store_path
+            if store is not None and (store / formats.MAP_REL).is_file():
+                maps[t] = yamlio.load_file(store / formats.MAP_REL)
+        schemas = formats.load_schemas(a.schemas)
+        mapped = {}
+        if maps:
+            m = layers.compose(maps, a.audience, reg, formats.MAP_SCHEMA).doc
+            mapped = formats.resolve_map(m, schemas)
+        rel = PurePosixPath(a.rel.replace("\\", "/")).as_posix()
+        fmt = formats.MAP_SCHEMA if rel == formats.MAP_REL else             formats.format_for(rel, schemas, mapped)
+        if fmt is None:
+            print(f"[ERROR] {a.rel}: no format claims it; add it to the project's "
+                  f"{formats.MAP_REL} or give the kit a schema for it", file=sys.stderr)
+            return 1
+        composed = layers.compose(found, a.audience, reg, fmt)
+    except (layers.LayerError, yamlio.YamlError, formats.FormatError) as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 1
     text = yaml.safe_dump(composed.doc, sort_keys=False, allow_unicode=True)

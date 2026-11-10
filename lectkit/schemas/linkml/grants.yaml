@@ -1,0 +1,22 @@
+id: https://lect-kit.example/schemas/grants
+name: grants
+title: Grants, reviews and drafts
+description: >-
+  A tier's decisions to release its material to a tier below it (lectkit/grants.py). Each file
+  maps a lower tier's id to a plain list. Who approved it and when is the granting tier's
+  commit, not the file. The granted items are the tier's material and are screened (project
+  custodian's rulings, 2026-11-09).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  lectkit: https://lect-kit.example/schemas/
+default_prefix: lectkit
+imports: [linkml:types, lectkit]
+classes:
+  ReviewRow:
+    description: One lower line a person cleared, kept as hashes and digests only.
+    attributes:
+      id: {range: string}                                # kept only in the scanning tier's record
+      rel: {range: digest, required: true}               # sha256 of the lower file's path
+      entry: {range: digest, required: true}             # sha256 of the reviewed line(s)
+      matched: {range: digest, multivalued: true}        # item digests under the tier's own key
+      nth: {range: integer, required: true}

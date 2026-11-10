@@ -1,0 +1,34 @@
+id: https://lect-kit.example/schemas/lectkit
+name: lectkit
+title: lect-kit base vocabulary
+description: >-
+  Types and annotations every lect-kit format schema imports. Standard LinkML does the
+  fields, identifiers, references and enumerations; lect-kit adds only what LinkML has no
+  word for. Annotations:
+    lectkit_material  true/false on a slot or type. Default by kind (project custodian's
+                      rulings, 2026-11-08): identifiers and references material; a value of a
+                      declared enum structure; everything else material.
+    lectkit_layering  on a multivalued slot: "key" (records join on the range class's
+                      identifier) or "stack" (records stack by value). Default: key when the
+                      range class has an identifier, otherwise stack.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  lectkit: https://lect-kit.example/schemas/lectkit/
+default_prefix: lectkit
+imports: [linkml:types]
+types:
+  digest:
+    typeof: string
+    description: >-
+      A hex hash or keyed digest, such as a reviewed line's sha256. It carries no knowledge,
+      so its value is never material; the screen checks it really is hex before passing it.
+    pattern: "^[0-9a-f]{12,128}$"
+    annotations: {lectkit_material: false}
+  form:
+    typeof: string
+    description: A spelling in the language. Screened, and term registers apply to it as a form.
+    annotations: {lectkit_material: true}
+  text:
+    typeof: string
+    description: Free text, such as a gloss or a note. Screened. The fallback kind.
+    annotations: {lectkit_material: true}

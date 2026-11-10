@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lectkit.tiers import Register
+
+if TYPE_CHECKING:
+    from lectkit.formats import Schema
 
 ID = "id"
 REPLACES = "replaces"
@@ -55,6 +58,14 @@ def order(reg: Register, audience: str) -> list[str]:
     return sorted(readable, key=lambda t: (len(reg.tiers[t].sees), rank[t]))
 
 
+def _key(schema: "Schema | None", path: Path_) -> str | None:
+    """The field identifying records in the list at `path`: `id` with no schema, else the
+    schema's identifier for that list, or None (the list stacks by value)."""
+    if schema is None:
+        return ID
+    return schema.key_for(tuple(s for s in path if isinstance(s, str)))
+
+
 def _olds(item: dict, path: Path_) -> list:
     olds = item.get(REPLACES, [])
     olds = olds if isinstance(olds, list) else [olds]
@@ -64,9 +75,9 @@ def _olds(item: dict, path: Path_) -> list:
     return olds
 
 
-def _check_replaces(items: list, path: Path_) -> None:
+def _check_replaces(items: list, path: Path_, key: str) -> None:
     """No old id is still in use in the list, and none is claimed by two records."""
-    live = {x[ID] for x in items if isinstance(x, dict) and isinstance(x.get(ID), (str, int))}
+    live = {x[key] for x in items if isinstance(x, dict) and isinstance(x.get(key), (str, int))}
     claimed: set = set()
     for x in items:
         if isinstance(x, dict) and REPLACES in x:
@@ -79,31 +90,37 @@ def _check_replaces(items: list, path: Path_) -> None:
                 claimed.add(o)
 
 
-def _check_ids(node: Any, path: Path_) -> None:
+def _check_ids(node: Any, path: Path_, schema: "Schema | None" = None) -> None:
     if isinstance(node, dict):
         for k, v in node.items():
-            _check_ids(v, path + (k,))
+            _check_ids(v, path + (k,), schema)
     elif isinstance(node, list):
+        key = _key(schema, path)
         seen: set = set()
-        _check_replaces(node, path)
+        if key is not None:
+            _check_replaces(node, path, key)
         for i, item in enumerate(node):
-            if isinstance(item, dict) and ID in item:
-                v = item[ID]
+            if key is not None and isinstance(item, dict) and key in item:
+                v = item[key]
                 if isinstance(v, bool) or not isinstance(v, (str, int)):
-                    raise LayerError(f"{where(path)}: an {ID} must be a string or an integer")
+                    raise LayerError(f"{where(path)}: an {key} must be a string or an integer")
                 if v in seen:
-                    raise LayerError(f"{where(path)}: duplicate {ID} {v!r}")
+                    raise LayerError(f"{where(path)}: duplicate {key} {v!r}")
                 seen.add(v)
-                _check_ids(item, path + (("id", v),))
+                _check_ids(item, path + (("id", v),), schema)
             else:
-                _check_ids(item, path + (("#", i),))
+                if schema is not None and key is not None and isinstance(item, dict):
+                    raise LayerError(f"{where(path)}: record #{i} has no {key}, which its "
+                                     f"schema {schema.name!r} identifies it by")
+                _check_ids(item, path + (("#", i),), schema)
 
 
 def _same(a: Any, b: Any) -> bool:
     return type(a) is type(b) and a == b
 
 
-def _merge(lower: Any, upper: Any, path: Path_, tier: str, origin: dict) -> None:
+def _merge(lower: Any, upper: Any, path: Path_, tier: str, origin: dict,
+           schema: "Schema | None" = None) -> None:
     for k, v in upper.items():
         if k == REPLACES and path and isinstance(path[-1], tuple) and path[-1][0] == "id":
             raise LayerError(f"{where(path)}: a {tier} layer can't add {REPLACES} to a record "
@@ -112,24 +129,26 @@ def _merge(lower: Any, upper: Any, path: Path_, tier: str, origin: dict) -> None
             lower[k] = copy.deepcopy(v)
             origin[path + (k,)] = tier
         elif isinstance(lower[k], dict) and isinstance(v, dict):
-            _merge(lower[k], v, path + (k,), tier, origin)
+            _merge(lower[k], v, path + (k,), tier, origin, schema)
         elif isinstance(lower[k], list) and isinstance(v, list):
-            _merge_list(lower[k], v, path + (k,), tier, origin)
+            _merge_list(lower[k], v, path + (k,), tier, origin, schema)
         elif not _same(lower[k], v):
             raise LayerError(f"{where(path + (k,))}: a {tier} layer can't change a value "
                              f"a lower layer holds")
 
 
-def _merge_list(lower: list, upper: list, path: Path_, tier: str, origin: dict) -> None:
-    by_id = {x[ID]: x for x in lower if isinstance(x, dict) and ID in x}
-    renamed = {o: x for x in lower if isinstance(x, dict) for o in _olds(x, path)}
+def _merge_list(lower: list, upper: list, path: Path_, tier: str, origin: dict,
+                schema: "Schema | None" = None) -> None:
+    key = _key(schema, path)
+    by_id = {x[key]: x for x in lower if key and isinstance(x, dict) and key in x}
+    renamed = {o: x for x in lower if key and isinstance(x, dict) for o in _olds(x, path)}
     for item in upper:
-        if isinstance(item, dict) and ID in item:
-            i = item[ID]
+        if key and isinstance(item, dict) and key in item:
+            i = item[key]
             target = by_id.get(i) or renamed.get(i)
             if target is not None:
-                _merge(target, {k: v for k, v in item.items() if k != ID}, path + (("id", target[ID]),),
-                       tier, origin)
+                _merge(target, {k: v for k, v in item.items() if k != key},
+                       path + (("id", target[key]),), tier, origin, schema)
             else:
                 lower.append(copy.deepcopy(item))
                 by_id[i] = lower[-1]
@@ -139,8 +158,12 @@ def _merge_list(lower: list, upper: list, path: Path_, tier: str, origin: dict) 
             origin[path + (("#", len(lower) - 1),)] = tier
 
 
-def compose(layers: dict[str, Any], audience: str, reg: Register) -> Composed:
-    """Compose one file for `audience` from {tier: document} for the tiers that hold it."""
+def compose(layers: dict[str, Any], audience: str, reg: Register,
+            schema: "Schema | None" = None) -> Composed:
+    """Compose one file for `audience` from {tier: document} for the tiers that hold it.
+
+    With a schema, records in each list join on the field the schema names for it, and a
+    list it gives no identifier stacks by value. Without one, records join on `id`."""
     tiers_in_order = order(reg, audience)
     unreadable = set(layers) - set(tiers_in_order)
     if unreadable:
@@ -151,16 +174,16 @@ def compose(layers: dict[str, Any], audience: str, reg: Register) -> Composed:
         if t not in layers:
             continue
         d = layers[t]
-        _check_ids(d, ())
+        _check_ids(d, (), schema)
         if out.doc is None:
             out.doc = copy.deepcopy(d)
             out.origin[()] = t
         elif isinstance(out.doc, dict) and isinstance(d, dict):
-            _merge(out.doc, d, (), t, out.origin)
+            _merge(out.doc, d, (), t, out.origin, schema)
         elif isinstance(out.doc, list) and isinstance(d, list):
-            _merge_list(out.doc, d, (), t, out.origin)
+            _merge_list(out.doc, d, (), t, out.origin, schema)
         elif not _same(out.doc, d):
             raise LayerError(f"the {t} layer isn't in the same form as the layers below it")
     if isinstance(out.doc, (dict, list)):
-        _check_ids(out.doc, ())   # the composed result obeys the same rules as each layer
+        _check_ids(out.doc, (), schema)   # the composed result obeys the same rules as each layer
     return out

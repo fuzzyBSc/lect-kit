@@ -55,16 +55,23 @@ If unsure, leave it out and ask the project custodian.
 - Plain text lists: one term per line, `#` comments.
 - JSON or YAML (`.yaml`, `.yml`): only strings under `term`, `form`, `word`, `headword`,
   `lemma` keys (terms), `variant`, `variants` keys (each matched as a whole word) or
-  `pattern`, `regex` keys (case-insensitive regexes) count. A bare list counts as terms.
+  `pattern`, `regex` keys (regexes, case-insensitive by default) count. A bare list counts as terms.
   Every other key, such as labels, notes, ids and flags, is ignored, so none of them
   produces false hits. A variant or pattern that isn't a valid regex is matched literally
-  rather than dropped. Any other key, such as one a list uses to exclude a look-alike word,
-  is ignored, so this screen can hit more often than a list's own tooling, never less.
+  rather than dropped. Two per-entry options follow the term registers' own tooling: an
+  entry with `case_sensitive: true` matches its terms, variants and patterns only in the
+  case written, and an entry's `suffix_guard` regex is appended after each of its variants
+  (not its patterns) to exclude a look-alike word. An invalid guard stops the run. Any
+  other key is ignored.
 - Terms and variants match as whole words even when they hold or sit next to
   punctuation, and both the list and the files are NFC-normalised. YAML is read with every
   value as text.
 - A path that doesn't exist and a file that can't be decoded are errors. A directory is
-  expanded.
+  expanded. A deny-list that doesn't exist, isn't UTF-8, or is a folder with no lists stops the
+  run, and the error names the file only. A deny-list folder is read as the `.yaml`,
+  `.yml` and `.json` lists under it, outside hidden folders, so a project can pass the
+  folder its lists live in. A plain text list is named on its own, so notes kept beside
+  the lists can't become terms. The hooks and the scan read term registers the same way.
 - Generic checks: honorific followed by a capitalised name, tape-style identifiers,
   personal paths, email addresses.
 - A hit prints file and line only, never the matched text. Exit 1 on any hit.

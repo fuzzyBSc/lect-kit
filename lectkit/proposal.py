@@ -6,7 +6,9 @@ crosses back.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,13 +16,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lectkit import audience_db, scan, tiers
+from lectkit import audience_db, layers, material_cache, scan, tiers
 from lectkit.tiers import Register
 
-VERDICT_KEYS = {"screened_for", "outcome", "basis", "by", "at", "tree", "locations"}
+VERDICT_KEYS = {"screened_for", "outcome", "basis", "by", "at", "tree", "locations", "causes"}
+# The kinds of match a held line can have; a verdict counts held lines by them, never by text.
+CAUSES = {"value", "token", "passage", "term"}
 OUTCOMES = {"hold", "no_match"}
 SCREENER = Path(__file__).resolve().parent.parent / "scripts" / "screen_for_tier.py"
 EVIDENCE_DIR = "lectkit/evidence"      # inside the lower store's git directory
+CACHE_DIR = "lectkit/material"         # inside the screening tier's git directory
 MESSAGE_REL = ".lectkit-commit-message"  # where a commit or tag object is scanned, as one more file
 PATHS_REL = ".lectkit-paths"             # every path in the tree, one per line: names are published too
 
@@ -69,6 +74,7 @@ def export_tree(repo: Path, tree: str, dest: Path) -> set[str]:
     and line-ending settings changes what is scanned. A symbolic link or a submodule in
     the tree is an error: neither can be screened. Returns the paths written."""
     files = tree_files(repo, tree)
+    targets = []
     for path, (mode, sha) in files.items():
         if mode == "120000":
             raise ProposalError(f"{path}: symbolic links can't be screened")
@@ -79,12 +85,25 @@ def export_tree(repo: Path, tree: str, dest: Path) -> set[str]:
         target = (dest / path).resolve()
         if not target.is_relative_to(dest.resolve()):
             raise ProposalError(f"{path}: leaves the export")
-        blob = subprocess.run(["git", "-C", str(repo), "cat-file", "blob", sha],
-                              capture_output=True)
-        if blob.returncode != 0:
+        targets.append((path, sha, target))
+    # Every blob in one `git cat-file --batch`: the same objects, one process.
+    r = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], capture_output=True,
+                       input="".join(f"{sha}\n" for _, sha, _ in targets).encode("ascii"))
+    if r.returncode != 0:
+        raise ProposalError("the tree can't be read from the object store")
+    out, i = r.stdout, 0
+    for path, sha, target in targets:
+        nl = out.index(b"\n", i)
+        head = out[i:nl].split()
+        if len(head) != 3 or head[0].decode() != sha or head[1] != b"blob":
             raise ProposalError(f"{path}: can't be read from the object store")
+        size = int(head[2])
+        data = out[nl + 1:nl + 1 + size]
+        if len(data) != size or out[nl + 1 + size:nl + 2 + size] != b"\n":
+            raise ProposalError(f"{path}: can't be read from the object store")
+        i = nl + 2 + size
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(blob.stdout)
+        target.write_bytes(data)
     return set(files)
 
 
@@ -100,12 +119,24 @@ def higher_tiers(reg: Register, low: str) -> list[str]:
 def screen(reg: Register, tier: str, low: str, export: Path, tree: str) -> dict:
     """Screen `low`'s exported tree for `tier`. Runs inside that tier's own process."""
     view = tiers.with_store(reg, low, export)
+    # Only what this screen needs: the proposal's own lines, and the material of the tiers
+    # hidden from it, which the screening tier keeps between screens (material_cache.py).
+    visible = {low, *reg.tiers[low].sees}
+    hidden = {t for t in layers.order(reg, tier) if t not in visible}
+    cache = material_cache.MaterialCache(git_dir(reg.tiers[tier].store_path) / CACHE_DIR,
+                                         view, tier, _file_digest(reg.path))
     with tempfile.TemporaryDirectory(prefix="lectkit-db-") as d:
         db_path = Path(d) / f"{tier}.sqlite"
-        audience_db.build(view, tier, db_path)
+        audience_db.build(view, tier, db_path, source_tiers={low}, model_tiers=hidden,
+                          cache=cache)
         with audience_db.AudienceDB(db_path) as db:
-            rep = scan.scan(db, view)
-    locations = sorted({(f.rel, f.line) for f in rep.open_findings if f.tier == low})
+            rep = scan.scan(db, view, lows={low})
+    held = [f for f in rep.open_findings if f.tier == low]
+    locations = sorted({(f.rel, f.line) for f in held})
+    causes: dict[str, int] = {}
+    for f in held:
+        for m in f.matches:
+            causes[m] = causes.get(m, 0) + 1
     return {
         "screened_for": tier,
         "outcome": "hold" if locations else "no_match",
@@ -114,6 +145,7 @@ def screen(reg: Register, tier: str, low: str, export: Path, tree: str) -> dict:
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "tree": tree,
         "locations": [{"rel": r, "line": n} for r, n in locations],
+        "causes": dict(sorted(causes.items())),
     }
 
 
@@ -135,6 +167,10 @@ def accept_verdict(raw: str, tier: str, tree: str, paths: set[str] | None = None
                 and (paths is None or loc["rel"] in paths)):
             raise ProposalError(f"{tier}: a verdict location isn't a file and line of the "
                                 f"proposed tree")
+    c = v["causes"]
+    if not isinstance(c, dict) or set(c) - CAUSES or not all(
+            isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in c.values()):
+        raise ProposalError(f"{tier}: a verdict's causes aren't counts by kind of match")
     if (v["outcome"] == "hold") != bool(v["locations"]):
         raise ProposalError(f"{tier}: the verdict's outcome and locations disagree")
     return v
@@ -181,22 +217,35 @@ def run(register_path: Path, low: str, repo: Path, tree: str | None = None,
                 raise ProposalError(f"the tree holds {MESSAGE_REL}, which is reserved")
             (export / MESSAGE_REL).write_text(message, encoding="utf-8")
             paths.add(MESSAGE_REL)
+        present = []
         for t in higher_tiers(reg, low):
             ts = reg.tiers[t].store_path
             # A higher store counts only if it is there and is a checkout of its own: an
             # empty or stray folder at that path would screen nothing and pass.
             if ts is None or not ts.is_dir() or tiers.git_remotes(ts) is None:
                 res.gaps.append(t)
-                continue
+            else:
+                present.append(t)
+
+        def one(t):
+            # Each higher tier screens in its own process, reading only the export and its
+            # own store, so the screens are independent and run side by side.
+            ts = reg.tiers[t].store_path
             before = audience_db.store_digest(t, ts, skip_kit=True)
             r = subprocess.run(
                 [sys.executable, "-E", str(SCREENER), "--register", str(register_path),
                  "--tier", t, "--lower", low, "--export", str(export), "--tree", tree],
                 capture_output=True, text=True)
+            return t, r, before, audience_db.store_digest(t, ts, skip_kit=True)
+
+        workers = max(1, min(len(present), os.cpu_count() or 1))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            done = list(pool.map(one, present))          # results in register order
+        for t, r, before, after in done:
             if r.returncode != 0:
                 raise ProposalError(f"{t}: the screen couldn't run")
             res.verdicts.append(accept_verdict(r.stdout, t, tree, paths))
-            if audience_db.store_digest(t, ts, skip_kit=True) != before:
+            if after != before:
                 raise ProposalError(f"{t}: the store changed while it was screening; run again")
             res.higher_digests[t] = before
     return res

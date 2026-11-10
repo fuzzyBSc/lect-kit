@@ -1,0 +1,659 @@
+# Shared English list, version 2 (lectkit/shared_lists.py). Ordinary English, code words and
+# project wording that the tiers had already granted lect-kit, merged into one list. Version 2 adds three gloss words that held lect-kit lines (project custodian, 2026-11-10).
+0 0
+0 1
+0 3
+1 0
+1 1
+1 2
+100
+2 4
+2026 11 07
+3 4
+3 5
+4 5
+a b
+a n
+about
+abs
+acc
+accent
+acknowledge
+across
+added
+adding
+address
+adjective
+adverb
+after
+again
+agent
+agree
+aim
+align
+aligning
+all
+allomorph
+alone
+already
+also
+alternatives
+always
+analysis
+anchors
+and
+and another
+and what is done with
+answer
+any
+applied
+around
+article
+ask
+ask for
+assert
+attestation
+attested
+author
+authored
+away
+b a
+back
+bad
+bare
+base
+basic
+basis
+because of
+becomes
+before
+behind
+belonging
+below
+benjamin carlyle
+best
+between
+big
+binary
+body
+bool
+borrowed
+bound
+break
+bug
+build
+building
+built
+c k
+call
+cap
+care for
+carry
+case
+case_sensitive
+cat
+catch
+category
+cell
+cells
+check
+checked
+child
+chosen
+citation
+claim
+claims
+class
+classes
+classification
+clean
+clear
+close
+closed
+cloud
+collapsed
+com
+come
+command
+community
+compared
+compound
+confirmed
+construction
+constructions
+container
+containment
+content
+contents
+context
+copula
+copy
+copyright
+core
+corpus
+corpus sources id work yaml
+correction
+correspondence
+correspondences
+count
+counts
+cover
+coverage
+culturally sensitive
+custodian s ruling 2026 11
+cut
+data
+date
+day
+deep
+default
+definition
+delete
+demonstrative
+deriv
+derivation
+derived
+description
+descriptor
+detail
+dialects
+dir
+direction
+disk
+docs classification md
+don t
+done
+down
+drive
+drop
+drops
+echo
+egg
+eight
+end to end
+enforced
+english
+enough
+enter
+entries
+entry
+environment
+erg
+ergative
+even
+everything
+evidence
+example
+examples
+exc
+exceptions
+exclamation
+excluded
+exclusions
+expected
+families
+family
+far
+feature
+features
+few
+fill
+fills
+final
+find
+finished
+first
+five
+follow
+food
+form
+forms
+four
+fragment
+fresh
+from
+functions
+gby
+general
+general paradigm historical_spelling_laves1929 yaml
+general paradigm historical_spelling_milson1850s yaml
+get
+gitignore
+give
+gloss
+go into
+good
+grammar
+group
+grow
+guides
+gumbaynggirr
+gumbaynggirr lect gby
+gyy
+gyy general
+gyy general paradigm historical_spelling_laves1929
+gyy general paradigm historical_spelling_laves1929 yaml
+gyy general paradigm historical_spelling_milson1850s
+gyy general paradigm historical_spelling_milson1850s yaml
+hand
+hands
+hang
+having
+head
+headword
+held in a higher tier
+help
+here
+hide
+historical
+historical_spelling_laves1929
+historical_spelling_laves1929 yaml
+historical_spelling_milson1850s
+historical_spelling_milson1850s yaml
+hit
+hold
+home
+hook
+host
+hosts
+how
+how many
+i b
+i n
+i r
+id
+identical
+in inside
+in the project s own
+index
+informants
+inherited
+input
+insert
+inside
+into
+is a named list of
+is in other published works
+is not one of the
+is written out in full
+issue
+it
+it is held as a
+it is keyed on the
+it project custodian s ruling
+joint
+kind
+know
+knowledge
+label
+labels
+language
+large
+later
+leave
+lect
+lect gby
+lect kit
+lects
+left
+lemma
+length
+let
+letter
+letters
+lexeme
+lexeme_id
+lexemes
+lexical
+licence
+lid
+lie
+like
+limits
+links
+lists
+little
+live
+loc
+location
+log
+long
+long ago
+look
+low
+m a
+main
+make a
+many
+map
+mark
+marker
+marking
+match
+matches
+max
+mcmaster1929
+meaning
+means
+measured
+mechanism
+members
+men s and women s
+merges
+message
+method
+middle
+minimum
+mining
+mix
+mode
+model
+modelled
+modern
+modern orthography
+move
+n a
+n b
+n n
+nab
+name
+narrow
+near
+negation
+neither
+never
+new
+none
+not
+not settled
+not_enforced_reason
+note
+notes
+noun
+nouns
+now
+nth
+number
+object
+of its own in a
+of its own so the
+off
+old
+on
+on the other side
+on the same page so
+one
+only
+onto
+open
+opening
+optional
+order
+original
+orthography
+other
+other side
+out
+outside
+over gyy general paradigm historical_spelling_laves1929
+over gyy general paradigm historical_spelling_milson1850s
+own
+owner
+pairs
+para
+paradigm
+paradigm constructions yaml
+paradigm historical_spelling_gunther1838 yaml
+paradigm historical_spelling_laves1929
+paradigm historical_spelling_laves1929 yaml
+paradigm historical_spelling_mcmaster1895 yaml
+paradigm historical_spelling_mcmaster1929 yaml
+paradigm historical_spelling_milson1850s
+paradigm historical_spelling_milson1850s yaml
+paradigm historical_spelling_ridley yaml
+paradigm lexicon nouns yaml
+paradigm lexicon verbs yaml
+paradigm noun cases yaml
+paradigm noun slots yaml
+part
+part_of_speech
+partial
+particle
+particles
+parts
+past
+pattern
+person
+phrase
+pick
+pitch
+place
+plain
+point
+policy
+pos
+position
+possible
+prefix
+present
+primary
+prior
+problem
+project
+project custodian s ruling 2026
+project custodian s rulings 2026
+pronoun
+proposed
+provenance
+publication
+publisher
+purpose
+push
+put in
+quality
+quantifier
+question
+question word
+quietly
+r a
+rate
+raw
+reading
+really
+reason
+recipient
+record
+recorder
+register
+rejected
+rel
+related
+relative
+renderings
+repeat
+replaced
+replaces
+reply
+required
+requires
+rest
+restricted word
+restrictive
+result
+returning
+rewrite
+right
+roles
+root
+round
+route
+row
+rows
+rule
+rules
+ruling
+run
+running
+s identifier in that work
+s ruling 2026 11 08
+s ruling 2026 11 09
+said
+say
+says so
+scope
+scratch
+second
+see
+send
+sense
+senses
+shape
+shapes
+shell
+short
+show
+side
+silent
+similar
+sit
+sit down
+size
+skip
+slash
+slip
+slot
+slots
+small
+soft
+some
+soon
+source
+sources
+speaker
+speakers
+speech
+spelling
+split
+stacked
+staged
+staged_tier_label
+stamp
+stand
+standard
+state
+stated
+statement
+status
+stay
+stem
+stop
+stop it
+stops
+straight
+strong
+sub
+subject
+subtypes
+suffix
+suffix_guard
+suffixes
+summary
+surface
+syllables
+table
+tag
+tail
+take
+talk
+tape
+tell
+template
+templates
+tested
+text
+than
+that
+that a
+the model of the language
+the other side
+the rule that made it
+then
+there
+this
+this word is in other
+three
+thumb
+tier
+time
+title
+to who
+together
+tokens
+top
+track
+tree
+true
+turn
+two
+type
+uncle
+uncle fred reece
+uncle fred reece glosses it
+undecided
+under
+unit
+unknown
+unmapped
+unrecorded
+untested
+v r
+variant
+variants
+variety
+verb
+verb_slots
+verbs
+verdict
+version
+very
+voice
+w i
+walk
+want
+warning
+watch
+well
+went
+what
+what a
+when
+where
+where this word is in
+where to
+which
+who
+who a
+whole
+whose
+why
+wide
+width
+will
+win
+with
+word
+word is in other published
+word or a rule that
+word s identifier in that
+words
+work
+write
+wrong
+y b
+y n
+yaml
+yes
+zero
+blue
+branch
+member

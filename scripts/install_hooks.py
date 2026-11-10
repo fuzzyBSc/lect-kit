@@ -25,7 +25,7 @@ HOOK = Path(__file__).resolve().parent / "lectkit_hook.py"
 
 def hook_text(name: str, register: Path, tier: str) -> str:
     q = lambda p: shlex.quote(Path(p).as_posix())  # noqa: E731
-    args = '"$@"' if name == "pre-push" else ""
+    args = {"pre-push": '"$@"', "commit-msg": '"$1"'}.get(name, "")
     return (f"#!/bin/sh\n{MARK}\n"
             f"exec {q(sys.executable)} -E {q(HOOK)} {name} --register {q(register)} "
             f"--tier {shlex.quote(tier)} --repo \"$(git rev-parse --show-toplevel)\" {args}\n")
@@ -55,13 +55,13 @@ def main(argv: list[str] | None = None) -> int:
     hooks_dir = Path(r.stdout.strip())
     hooks_dir = hooks_dir if hooks_dir.is_absolute() else (a.repo / hooks_dir)
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("pre-commit", "pre-push"):
+    for name in ("pre-commit", "commit-msg", "pre-push"):
         f = hooks_dir / name
         if f.exists() and MARK not in f.read_text(encoding="utf-8", errors="replace") and not a.force:
             print(f"[ERROR] {name} exists and lect-kit didn't write it; pass --force to replace it",
                   file=sys.stderr)
             return 1
-    for name in ("pre-commit", "pre-push"):
+    for name in ("pre-commit", "commit-msg", "pre-push"):
         f = hooks_dir / name
         f.write_text(hook_text(name, a.register.resolve(), a.tier), encoding="utf-8", newline="\n")
         f.chmod(0o755)

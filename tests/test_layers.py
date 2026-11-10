@@ -54,6 +54,7 @@ def sense_ids(doc):
 
 
 def test_order_follows_sees(reg):
+    """@AC-layered_files-2. Each tier comes after every tier it sees."""
     assert layers.order(reg, "fx-c") == ["fx-open", "fx-a", "fx-c"]
     assert layers.order(reg, "fx-p") == ["fx-open", "fx-p"]
 
@@ -65,12 +66,14 @@ def test_order_follows_sees(reg):
     ("fx-p", ["fx-open", "fx-p"], ["stemA-s1", "stemA-s3"]),
 ])
 def test_compose_per_audience(reg, audience, held, expect):
+    """@AC-layered_files-1 @AC-layered_files-6. Each audience's view holds its own layer and the layers it sees."""
     all_layers = {"fx-open": OPEN, "fx-a": TIER_A, "fx-c": TIER_C, "fx-p": TIER_P}
     got = layers.compose({t: all_layers[t] for t in held}, audience, reg)
     assert sense_ids(got.doc) == expect
 
 
 def test_location_decides_the_tier(reg):
+    """@AC-layered_files-4. Each record and value takes the tier of the store that added it."""
     got = layers.compose({"fx-open": OPEN, "fx-a": TIER_A, "fx-c": TIER_C}, "fx-c", reg)
     e = ("entries",)
     assert got.tier_of(e + (("id", "stemA"),)) == "fx-open"
@@ -82,18 +85,21 @@ def test_location_decides_the_tier(reg):
 
 
 def test_a_tier_field_is_not_read_as_the_tier(reg):
+    """@AC-layered_files-5. A field naming a tier isn't read as the tier."""
     forged = {"entries": [{"id": "stemA", "senses": [{"id": "stemA-s9", "tier": "fx-open"}]}]}
     got = layers.compose({"fx-open": OPEN, "fx-a": forged}, "fx-a", reg)
     assert got.tier_of(("entries", ("id", "stemA"), "senses", ("id", "stemA-s9"))) == "fx-a"
 
 
 def test_input_order_doesnt_matter(reg):
+    """@AC-layered_files-2. The register sets the order, not the order layers are handed over."""
     a = layers.compose({"fx-c": TIER_C, "fx-a": TIER_A, "fx-open": OPEN}, "fx-c", reg)
     b = layers.compose({"fx-open": OPEN, "fx-a": TIER_A, "fx-c": TIER_C}, "fx-c", reg)
     assert a.doc == b.doc
 
 
 def test_lower_layer_is_untouched(reg):
+    """@AC-layered_files-9. Composing leaves the lower layer as it was."""
     import copy
     before = copy.deepcopy(OPEN)
     layers.compose({"fx-open": OPEN, "fx-a": TIER_A}, "fx-a", reg)
@@ -101,6 +107,7 @@ def test_lower_layer_is_untouched(reg):
 
 
 def test_unreadable_layer_is_refused(reg):
+    """@AC-layered_files-3. A layer the audience can't read is refused."""
     with pytest.raises(layers.LayerError, match="aren't readable"):
         layers.compose({"fx-open": OPEN, "fx-p": TIER_P}, "fx-q", reg)
 
@@ -112,21 +119,25 @@ def test_unreadable_layer_is_refused(reg):
     {"lect": 1},
 ])
 def test_a_higher_layer_only_adds(reg, upper):
+    """@AC-layered_files-7. A changed value or form is an error."""
     with pytest.raises(layers.LayerError):
         layers.compose({"fx-open": OPEN, "fx-a": upper}, "fx-a", reg)
 
 
 def test_restating_a_value_is_allowed(reg):
+    """@AC-layered_files-8. Restating an equal value adds nothing."""
     got = layers.compose({"fx-open": OPEN, "fx-a": {"lect": "fx"}}, "fx-a", reg)
     assert got.doc["lect"] == "fx"
 
 
 def test_bool_is_not_int(reg):
+    """@AC-layered_files-7. true where the lower layer has 1 is a change of type."""
     with pytest.raises(layers.LayerError):
         layers.compose({"fx-open": {"n": 1}, "fx-a": {"n": True}}, "fx-a", reg)
 
 
 def test_whole_file_form_must_match(reg):
+    """@AC-layered_files-7. A whole file in another form is an error."""
     with pytest.raises(layers.LayerError, match="same form"):
         layers.compose({"fx-open": OPEN, "fx-a": [1, 2]}, "fx-a", reg)
 
@@ -137,11 +148,13 @@ def test_whole_file_form_must_match(reg):
     ({"entries": [{"id": ["x"]}]}, "string or an integer"),
 ])
 def test_ids_are_checked(reg, bad, msg):
+    """@AC-layered_files-10. Ids are text or integers, unique within their list."""
     with pytest.raises(layers.LayerError, match=msg):
         layers.compose({"fx-open": bad}, "fx-open", reg)
 
 
 def test_renamed_record_is_found_through_replaces(reg):
+    """@AC-layered_files-11. A higher layer finds a renamed record through replaces."""
     base = {"entries": [{"id": "stemN", "replaces": ["stemOld"], "senses": []}]}
     upper = {"entries": [{"id": "stemOld", "senses": [{"id": "stemOld-s2", "gloss": "g"}]}]}
     got = layers.compose({"fx-open": base, "fx-a": upper}, "fx-a", reg)
@@ -151,18 +164,21 @@ def test_renamed_record_is_found_through_replaces(reg):
 
 
 def test_an_old_id_replaced_twice_is_an_error(reg):
+    """@AC-layered_files-12. An id two records claim is an error."""
     base = {"entries": [{"id": "n1", "replaces": ["old"]}, {"id": "n2", "replaces": ["old"]}]}
     with pytest.raises(layers.LayerError, match="two records"):
         layers.compose({"fx-open": base, "fx-a": {"entries": [{"id": "old"}]}}, "fx-a", reg)
 
 
 def test_plain_values_are_not_duplicated(reg):
+    """@AC-layered_files-6 @AC-layered_files-8. A new plain value is appended; an equal one isn't repeated."""
     got = layers.compose({"fx-open": OPEN, "fx-a": {"entries": [{"id": "stemA",
                          "variants": ["stemA", "stemAy"]}]}}, "fx-a", reg)
     assert got.doc["entries"][0]["variants"] == ["stemA", "stemAy"]
 
 
 def test_cli(tmp_path, capsys):
+    """@AC-layered_files-14 @AC-layered_files-15 @AC-layered_files-16. The command writes the view, reports absent stores, and keeps --rel inside the store."""
     import compose_layers as cli
     (tmp_path / "fx-tiers.yaml").write_text(FX_TIERS, encoding="utf-8")
     for t, d in {"fx-open": OPEN, "fx-a": TIER_A, "fx-c": TIER_C}.items():
@@ -170,8 +186,13 @@ def test_cli(tmp_path, capsys):
         f.parent.mkdir(parents=True)
         f.write_text(yaml.safe_dump(d, sort_keys=False), encoding="utf-8")
     out = tmp_path / "fx-view.yaml"
+    sd = tmp_path / "schemas"      # the fixture lexicon's format: records join on id
+    sd.mkdir()
+    (sd / "fx.yaml").write_text(yaml.safe_dump({"format": "fx-lexicon", "files": ["lexicon/*.yaml"],
+                                "lists": {"entries": {"key": "id"},
+                                          "entries/senses": {"key": "id"}}}), encoding="utf-8")
     args = ["--register", str(tmp_path / "fx-tiers.yaml"), "--audience", "fx-c", "--rel", REL,
-            "--out", str(out)]
+            "--out", str(out), "--schemas", str(sd)]
     assert cli.main(args + ["--origin"]) == 0
     assert sense_ids(yaml.safe_load(out.read_text(encoding="utf-8"))) == [
         "stemA-s1", "stemA-s2", "stemB-s1", "stemB-s2"]
@@ -190,6 +211,7 @@ def test_cli(tmp_path, capsys):
 # --- review findings ------------------------------------------------------------------
 
 def test_a_higher_layer_cant_add_replaces_to_a_lower_record(reg):
+    """@AC-layered_files-13. A higher layer can't add replaces to a lower record."""
     base = {"entries": [{"id": "x"}]}
     hijack = {"entries": [{"id": "x", "replaces": ["old"]}]}
     with pytest.raises(layers.LayerError, match="can't add replaces"):
@@ -198,6 +220,7 @@ def test_a_higher_layer_cant_add_replaces_to_a_lower_record(reg):
 
 @pytest.mark.parametrize("held", [["fx-open"], ["fx-open", "fx-a"]])
 def test_replacing_an_id_still_in_use_is_an_error_in_any_layer(reg, held):
+    """@AC-layered_files-12. An id still in use can't be replaced, in one layer or across layers."""
     docs = {"fx-open": {"entries": [{"id": "x"}, {"id": "n", "replaces": ["x"]}]},
             "fx-a": {"entries": []}}
     if held == ["fx-open", "fx-a"]:
@@ -209,11 +232,13 @@ def test_replacing_an_id_still_in_use_is_an_error_in_any_layer(reg, held):
 
 @pytest.mark.parametrize("value", [{"k": 1}, [["x"]], True])
 def test_replaces_must_hold_ids(reg, value):
+    """@AC-layered_files-12. replaces holds only ids."""
     with pytest.raises(layers.LayerError, match="holds ids"):
         layers.compose({"fx-open": {"entries": [{"id": "n", "replaces": value}]}}, "fx-open", reg)
 
 
 def test_equal_root_scalars_and_lists(reg):
+    """@AC-layered_files-6 @AC-layered_files-8 @AC-layered_files-4. Whole files that are a value or a list compose by the same rule."""
     assert layers.compose({"fx-open": "v", "fx-a": "v"}, "fx-a", reg).doc == "v"
     got = layers.compose({"fx-open": [{"id": "x"}], "fx-a": [{"id": "y"}]}, "fx-a", reg)
     assert got.doc == [{"id": "x"}, {"id": "y"}]
@@ -221,6 +246,7 @@ def test_equal_root_scalars_and_lists(reg):
 
 
 def test_restated_mapping_without_id_isnt_duplicated(reg):
+    """@AC-layered_files-6 @AC-layered_files-8 @AC-layered_files-4. A mapping without an id is appended unless an equal one is there."""
     got = layers.compose({"fx-open": {"notes": [{"k": 1}]}, "fx-a": {"notes": [{"k": 1}, {"k": 2}]}},
                          "fx-a", reg)
     assert got.doc["notes"] == [{"k": 1}, {"k": 2}]
@@ -228,12 +254,14 @@ def test_restated_mapping_without_id_isnt_duplicated(reg):
 
 
 def test_none_values(reg):
+    """@AC-layered_files-7 @AC-layered_files-8. An equal empty value is restated; replacing it is an error."""
     assert layers.compose({"fx-open": {"a": None}, "fx-a": {"a": None}}, "fx-a", reg).doc == {"a": None}
     with pytest.raises(layers.LayerError):
         layers.compose({"fx-open": {"a": None}, "fx-a": {"a": "x"}}, "fx-a", reg)
 
 
 def test_strict_yaml():
+    """@AC-layered_files-17. Files are read strictly."""
     from lectkit import yamlio
     assert yamlio.load("a: no\nb: on\nc: 2026-01-02\nd: true\n") == {
         "a": "no", "b": "on", "c": "2026-01-02", "d": True}
@@ -244,6 +272,7 @@ def test_strict_yaml():
 
 
 def test_cli_errors(tmp_path, capsys):
+    """@AC-layered_files-18 @AC-layered_files-15. Read errors go to stderr and exit 1; no readable store holding the file is an error."""
     import compose_layers as cli
     reg_file = tmp_path / "fx-tiers.yaml"
     reg_file.write_text(FX_TIERS, encoding="utf-8")

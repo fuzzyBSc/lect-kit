@@ -76,10 +76,56 @@ A person can override any default. The override is recorded with who and why
 - Project config holds terms of use per audience build, including an AI-training
   statement (`allowed`, `not allowed`, or community text) and an optional licence ID
   or URL for community data.
-- Rendered HTML carries the terms visibly, plus machine-readable signals: a meta tag,
-  and a `robots.txt` and `ai.txt`-style file in the output root. Document that these
-  are requests, not enforcement.
+- The AI-training statement defaults to `not allowed`. A community can change it per
+  build, recorded with who and why.
 - Exchange packages carry the terms in their header.
+
+### Training controls in published sets
+
+*Project custodian's ruling, 2026-11-08:* every published set carries the most
+appropriate controls against AI training that can be put in text, in the files of the
+set, or in server configuration shipped with it. While the statement is `not allowed`,
+a build emits all of the following. Exact syntax comes from each convention's current
+document, checked when the emitter is built, not from memory.
+
+- **Plain text.** Every page shows the terms near the top, and every downloadable file
+  (CSV, JSON, YAML, markdown, text) carries them in a header comment or a sibling
+  `TERMS` file. The default text says the material may not be used to train, fine-tune
+  or evaluate AI models, and that the rights holders reserve text and data mining
+  rights, including under Article 4(3) of the EU DSM Directive. The community can
+  replace the text; the reservation sentence stays unless they remove it on the record.
+- **HTML head.** TDMRep `tdm-reservation` and `tdm-policy` meta tags, a robots meta tag
+  with `noai, noimageai`, and a link to the terms page.
+- **`robots.txt`.** A `__usage_ai-training` group disallowing everything; the IETF AI
+  Preferences usage line (`Content-Usage`) saying no training; Cloudflare's
+  `Content-Signal` line with `ai-train=no`; and a `Disallow: /` group for each known
+  training crawler. Whether search crawlers may index is a separate community setting,
+  default allowed.
+- **Other root files.** `/.well-known/tdmrep.json`, `ai.txt`, and a terms page. Add new
+  conventions here when they have a published specification.
+- **HTTP headers.** `tdm-reservation`, `tdm-policy`, `X-Robots-Tag: noai, noimageai`
+  and the AI Preferences `Content-Usage` header, written in the host's own format: an
+  `.htaccess` for Apache, a `_headers` file for static hosts that read one, and an
+  nginx snippet in the build report for the person who runs the server.
+- **Crawler blocking.** The `.htaccess` also refuses requests from the known training
+  crawlers by user agent (403). This is the only control that blocks a crawler that
+  ignores signals, and it only works on hosts that honour `.htaccess`.
+- **Embedded metadata.** Images, audio, video and PDF carry the terms in XMP, with IPTC
+  `plus:DataMining` set to prohibited, and EPUB and PDF carry TDMRep properties. A file
+  the kit can't write metadata into is listed in the build report.
+
+Rules around them:
+
+- The crawler list and signal syntax are a data file in `schemes/`, with each entry's
+  source URL and the date it was checked, and a `stale_after`. A build warns when the
+  file is stale. Updating it is part of keeping the kit current (`PRINCIPLES.md` §14).
+- The build report says which controls the chosen host will actually serve (a host that
+  ignores `.htaccess` or `_headers` gets none of those) and that every control except
+  server blocking is a request.
+- A public build fails if any control is missing, unless a recorded override says which
+  one and why.
+- If the statement is `allowed` or community text, the build emits that instead and
+  none of the blocking rules.
 
 ## People who have passed away
 
@@ -121,6 +167,7 @@ copyright. Those communities' ICIP applies.
 
 - Format of withdrawal, withholding and label records, and where each lives.
 - How an exchange recipient acknowledges a withdrawal notice.
-- Which machine-readable AI-training signals to emit. Conventions are still settling.
+- The schema of the crawler and signal data file.
+- Whether a set behind a login still gets the full set of controls (default: yes).
 - Governance of lect-kit itself: who guides it and how communities using it have a
   voice. The project custodian decides.

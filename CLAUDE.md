@@ -32,11 +32,19 @@ update the matching `docs/` page in plain language. In short:
   `knowledge/README.md`), and identifiers follow the rule there. Before committing, also
   run `python scripts/check_knowledge_frontmatter.py`,
   `python scripts/check_knowledge_refs.py` and `python scripts/check_identifiers.py`.
+- Every test and every piece of code traces to a scenario in `features/`, written before
+  the code (`knowledge/feature_procedure.md`). Specs stay freeform above the features.
+  Before committing, also run `python scripts/check_feature_traceability.py` and the
+  tests under coverage (`python -m coverage erase`, then
+  `python -m coverage run -m pytest -q tests`, `python -m coverage combine -q` and
+  `python -m coverage report`, which fails below the floor). Install what they need
+  with `python -m pip install -r requirements-test.txt`. CI runs the same on every pull
+  request.
 - Never push from here to a community's repository, and don't add one as a remote.
   Material moves between them only by the community's own process.
 - No destructive git commands. Reading history with git is fine.
 - Commit or push only when the project custodian asks.
-- Code here can't import from a language project, name its paths or assume its layout.
+- Code here can't import from a language project or name its paths. The kit defines a standard layout instead: each format's schema names the file name patterns that hold it, as a starting point for every project. A project adds to it in `.lectkit/formats.yaml` for files the patterns don't cover, and can't give a file a different format from the one its pattern names. (Project custodian's ruling, 2026-11-08.)
 - SQLite and any other database is ephemeral. Never store a fact only in a database,
   never commit, back up or export one. Write to a source file and rebuild
   (`knowledge/spec_storage.md`).

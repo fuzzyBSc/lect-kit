@@ -1,0 +1,42 @@
+# Runs the kit's own checks on every pull request (knowledge/feature_procedure.md).
+# The content checker isn't run here: its deny-lists belong to each project and never
+# reach this repository or its CI.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install -r requirements-test.txt
+      - name: Knowledge files
+        run: |
+          python scripts/check_knowledge_frontmatter.py
+          python scripts/check_knowledge_refs.py
+          python scripts/check_identifiers.py
+      - name: Every scenario tested, every test traced
+        run: python scripts/check_feature_traceability.py
+      - name: Tests and coverage
+        run: |
+          python -m coverage erase
+          python -m coverage run -m pytest -q -p no:cacheprovider tests
+          python -m coverage combine -q
+          python -m coverage report

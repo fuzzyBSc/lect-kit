@@ -14,7 +14,9 @@ and every other key (labels, notes, flags) is ignored. Pattern values are
 case-insensitive regexes; each variant and term is matched as a whole word.
 Text on both sides is NFC-normalised. A path that doesn't exist, or a file
 that can't be decoded, is an error, never a silent skip; a directory is
-expanded.
+expanded. A deny-list that doesn't exist or isn't UTF-8 stops the run, and a deny-list
+folder is read as the .yaml, .yml and .json lists under it, outside hidden folders
+(lectkit/denylist.py, shared with the hooks and the scan).
 
 With no PATH, checks every file git tracks or would add. Exits 1 on any hit.
 See docs/content_rules.md.
@@ -35,6 +37,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lectkit.denylist import (EDGE_L, EDGE_R, SKIP_SUFFIXES, load_deny, nfc,  # noqa: E402,F401
                               term_regex)
+from lectkit.denylist import matchers as deny_matchers  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()
@@ -92,10 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     env = os.environ.get("LECT_KIT_DENY")
     if env:
         deny_files += [Path(p) for p in env.split(os.pathsep) if p]
-    matchers: list[re.Pattern] = []
-    for f in deny_files:
-        t, r = load_deny(f)
-        matchers += [term_regex(x) for x in sorted(t)] + r
+    matchers = deny_matchers(deny_files)
 
     if a.paths:
         files, missing = expand(a.paths)

@@ -132,6 +132,12 @@ Ethics, the CARE principles and Indigenous data sovereignty principles.
 - **Published outputs carry the community's terms,** including whether the material
   may be used to train AI. A notice can't stop every misuse, so the kit doesn't claim it
   can.
+- **Everything published carries every reasonable control against AI training.**
+  Unless the community has decided otherwise, each published set says in plain words
+  that it may not be used to train AI, and carries every machine-readable signal and
+  server rule the kit knows of: in the pages and files themselves, in `robots.txt` and
+  similar files, and in server configuration such as `.htaccess`. The kit keeps that
+  list current as conventions change.
 - **People who have passed away are respected.** A community can withhold a person's
   name, voice or image from outputs, for a time or indefinitely, without reclassifying
   anything.

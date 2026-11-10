@@ -56,8 +56,11 @@ community decides some material may be processed elsewhere, you say which materi
 where.
 
 **Set terms on what you publish.** Pages the kit produces can carry your terms of use,
-including whether the material may be used to train AI. A notice won't stop everyone
-who ignores it, and the kit doesn't pretend otherwise. You might also choose a licence
+including whether the material may be used to train AI. Unless you decide otherwise,
+everything the kit publishes says it may not, and carries every signal the kit knows
+of in the pages, in the files and in the website settings it produces. [Using AI, or
+not](ai.md) lists them. A notice won't stop everyone who ignores it, and the kit
+doesn't pretend otherwise. You might also choose a licence
 written for community data, such as the Kaitiakitanga License that Te Hiku Media wrote
 for Māori language data.
 

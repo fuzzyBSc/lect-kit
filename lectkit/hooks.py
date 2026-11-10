@@ -56,7 +56,8 @@ def _report(res: proposal.ProposalResult, say: Callable[[str], None], what: str)
     """Print a proposal result; True when it passes."""
     for v in res.verdicts:
         if v["outcome"] == "hold":
-            say(f"[HOLD] {what}: screened for {v['screened_for']}")
+            causes = ", ".join(f"{k} {n}" for k, n in v.get("causes", {}).items())
+            say(f"[HOLD] {what}: screened for {v['screened_for']} (held by {causes})")
             for loc in v["locations"]:
                 say(f"  {loc['rel']}:{loc['line']}: not allowed in {res.tier}")
     for g in res.gaps:
@@ -112,6 +113,12 @@ def pre_commit(register_path: Path, low: str, repo: Path,
                 say(f"[REFUSED] {path}:{n}: a registered term in a file this tier excludes from "
                     f"its material; move it under the tier's material or rewrite it")
             return 1
+        if reg.tiers[low].screening_only:
+            bad = _screening_scope(reg, low, repo)
+            if bad:
+                for p in bad:
+                    say(f"[REFUSED] {p}")
+                return 1
         if not proposal.higher_tiers(reg, low):
             return 0                     # no tier sits above this one: nothing can be hidden from it
         tree = proposal.staged_tree(repo)
@@ -212,6 +219,49 @@ def pre_push(register_path: Path, low: str, repo: Path, remote: str, updates: It
                 if not _report(res, say, f"commit {c[:12]}"):
                     say("[REFUSED] the push isn't screened clean")
                     return 1
+        return 0
+    except proposal.ProposalError as e:
+        say(f"[REFUSED] {e}")
+        return 1
+
+
+def _screening_scope(reg, tier: str, repo: Path) -> list[str]:
+    """A screening-only tier's staged files, checked for prose (lectkit/screening_scope.py)."""
+    from lectkit import audience_db, screening_scope
+    store = reg.tiers[tier].store_path
+    pats = audience_db.not_material(store)
+    paths = subprocess.run(["git", "-c", "core.quotepath=off", "-C", str(repo), "ls-files"], capture_output=True,
+                           text=True, check=True).stdout.splitlines()
+    read = lambda rel: subprocess.run(["git", "-C", str(repo), "show", f":{rel}"],  # noqa: E731
+                                      capture_output=True, check=True).stdout.decode("utf-8")
+    terms = {p.relative_to(store.resolve()).as_posix() for p in reg.tiers[tier].terms
+             if store.resolve() in p.parents}
+    return screening_scope.problems([p for p in paths if p], read, terms,
+                                    lambda rel: audience_db.excluded(pats, rel))
+
+
+def commit_msg(register_path: Path, low: str, repo: Path, msg_file: Path,
+               say: Callable[[str], None] = print) -> int:
+    """Screen a commit's message and its author and committer lines before the commit is
+    made. The pre-commit hook can't: neither exists yet when it runs, so without this they
+    were first screened at push."""
+    try:
+        reg = tiers.load(register_path)
+        if reg.problems or low not in reg.tiers:
+            say("[REFUSED] the register has problems or doesn't name this tier")
+            return 1
+        if not proposal.higher_tiers(reg, low):
+            return 0
+        raw = Path(msg_file).read_text(encoding="utf-8")
+        message = "".join(f"{x}\n" for x in raw.splitlines() if not x.startswith("#"))
+        ident = {k: _git(repo, "var", f"GIT_{k.upper()}_IDENT").strip()
+                 for k in ("author", "committer")}
+        text = f"author {ident['author']}\ncommitter {ident['committer']}\n\n{message}"
+        res = proposal.run(register_path, low, repo, proposal.staged_tree(repo), text)
+        if not _report(res, say, "commit message"):
+            say(f"[REFUSED] the message or author lines aren't screened clean (they are "
+                f"{proposal.MESSAGE_REL} above); reword them, then commit again")
+            return 1
         return 0
     except proposal.ProposalError as e:
         say(f"[REFUSED] {e}")

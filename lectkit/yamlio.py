@@ -8,16 +8,21 @@
 """
 from __future__ import annotations
 
+import functools
 import re
 
 import yaml
+
+# libyaml's parser when this PyYAML has it: the same YAML, about ten times faster. The
+# resolvers and constructors below are Python either way, so what a file means is the same.
+_BASE = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 class YamlError(ValueError):
     pass
 
 
-class DataLoader(yaml.SafeLoader):
+class DataLoader(_BASE):
     pass
 
 
@@ -70,7 +75,10 @@ SKIP_TAGS = {"tag:yaml.org,2002:null"}
 ID_KEY = "id"
 
 
+@functools.lru_cache(maxsize=64)
 def _compose(text: str):
+    """The node tree of one document. Cached by text, since a build reads each file's tree
+    more than once; callers only read the tree."""
     try:
         return yaml.compose(text, Loader=DataLoader)
     except yaml.composer.ComposerError as e:
@@ -87,15 +95,16 @@ def source_items(text: str):
     `kind` is "key" or "scalar"; nulls are left out. `path` uses the same steps as
     lectkit.layers (mapping keys, ("id", value) for a list item with an id, ("#", index)
     otherwise), as text, so a composed value can be traced to the line that wrote it.
-    Aliases are refused: they would make one line stand for several values. Raises
-    YamlError on anything that isn't one valid YAML document."""
+    An alias reuses content already written at its anchor, so that content is reported
+    once, at the anchor's line, and not again at each alias (a recursive alias can't loop).
+    Raises YamlError on anything that isn't one valid YAML document."""
     root = _compose(text)
     out = []
     seen: set[int] = set()
 
     def walk(node, path):
         if id(node) in seen:
-            raise YamlError(f"line {node.start_mark.line + 1}: aliases aren't allowed")
+            return              # an alias: its content is recorded once, at its anchor's line
         seen.add(id(node))
         if isinstance(node, yaml.MappingNode):
             for k, v in node.value:

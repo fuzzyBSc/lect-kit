@@ -1,0 +1,5 @@
+# What the kit and its checks need. Install with: python -m pip install -r requirements-test.txt
+pyyaml==6.0.3
+# Test-only: running the tests and measuring their coverage (knowledge/feature_procedure.md).
+pytest==9.1.1
+coverage==7.17.2

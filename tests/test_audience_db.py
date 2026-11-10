@@ -59,10 +59,12 @@ def build(tmp_path, audience="fx-c"):
 
 
 def test_model_tiers_come_from_location(tmp_path):
+    """@AC-audience_db-1, @AC-audience_db-4, @AC-audience_db-5, @AC-audience_db-6. Material keeps the tier that added it."""
     db, rep = build(tmp_path)
     with db:
         assert rep.tiers == ["fx-open", "fx-a", "fx-c"]
-        assert db.model_tiers("open gloss wordone") == {"fx-open"}   # restated at fx-a
+        # A higher tier never restates: what its copy writes is its material.
+        assert db.model_tiers("open gloss wordone") == {"fx-open", "fx-a"}   # written again at fx-a
         assert db.model_tiers("glossqz added at tier a here") == {"fx-a"}
         assert db.model_tiers("GLOSSQY") == {"fx-c"}
         assert db.model_tiers("42") == {"fx-c"}                       # numbers are content
@@ -73,6 +75,7 @@ def test_model_tiers_come_from_location(tmp_path):
 
 
 def test_source_values_keep_store_file_and_line(tmp_path):
+    """@AC-audience_db-3. Source rows keep store, file and line."""
     db, _ = build(tmp_path)
     with db:
         rows = set(db.con.execute(
@@ -84,6 +87,7 @@ def test_source_values_keep_store_file_and_line(tmp_path):
 
 
 def test_peer_store_is_not_read(tmp_path):
+    """@AC-audience_db-1. A peer store isn't read."""
     db, _ = build(tmp_path)
     with db:
         assert db.model_tiers("stemP") == set()
@@ -91,6 +95,7 @@ def test_peer_store_is_not_read(tmp_path):
 
 
 def test_a_key_added_to_a_lower_mapping_is_content(tmp_path):
+    """@AC-audience_db-5. A key added above is content."""
     files = {**FILES, "fx-c": {REL: "entries:\n- id: stemA\n  fxkeyqk: 1\n"}}
     reg, _ = setup(tmp_path, files)
     out = tmp_path / "build" / "fx-c.sqlite"
@@ -100,6 +105,7 @@ def test_a_key_added_to_a_lower_mapping_is_content(tmp_path):
 
 
 def test_passages(tmp_path):
+    """@AC-audience_db-8. Passages keep their value's tier."""
     db, _ = build(tmp_path)
     with db:
         hits = db.con.execute("SELECT DISTINCT v.tier FROM model_passage p JOIN model_value v "
@@ -108,6 +114,7 @@ def test_passages(tmp_path):
 
 
 def test_media_is_skipped_and_recorded(tmp_path):
+    """@AC-audience_db-23. Media is counted and left out."""
     db, rep = build(tmp_path)
     with db:
         assert rep.skipped_media == 1
@@ -115,7 +122,7 @@ def test_media_is_skipped_and_recorded(tmp_path):
 
 
 def test_leak_query_shape(tmp_path):
-    """A value in fx-open's store that equals material fx-c added is a candidate leak.
+    """@AC-audience_db-18. A value in fx-open's store that equals material fx-c added is a candidate leak.
     A value fx-c only restates from below isn't, and a key fx-c uses that fx-open also
     uses as a key is a field name."""
     files = {**FILES, "fx-open": {**FILES["fx-open"], "fx-leaked.md": "glossqy\nopen gloss wordone\n"}}
@@ -133,6 +140,7 @@ def test_leak_query_shape(tmp_path):
 
 
 def test_refuses_an_output_inside_any_store(tmp_path):
+    """@AC-audience_db-24. No database inside a store."""
     reg, _ = setup(tmp_path)
     for t in ("fx-open", "fx-a", "fx-c", "fx-p"):
         with pytest.raises(adb.BuildError, match="inside a store"):
@@ -140,6 +148,7 @@ def test_refuses_an_output_inside_any_store(tmp_path):
 
 
 def test_absent_store_stops_the_build(tmp_path):
+    """@AC-audience_db-2. An absent store stops the build."""
     import shutil
     reg, _ = setup(tmp_path)
     shutil.rmtree(tmp_path / "stores" / "fx-a")
@@ -153,6 +162,7 @@ def test_absent_store_stops_the_build(tmp_path):
     ("fx-dup.yaml", "glossqy: 1\nglossqy: 2\n", "not valid YAML"),
 ])
 def test_unreadable_files_stop_the_build_without_showing_content(tmp_path, rel, body, msg):
+    """@AC-audience_db-22. Errors name the file, not its content."""
     files = {**FILES, "fx-c": {**FILES["fx-c"], rel: body}}
     reg, _ = setup(tmp_path, files)
     out = tmp_path / "build" / "fx-c.sqlite"
@@ -163,6 +173,7 @@ def test_unreadable_files_stop_the_build_without_showing_content(tmp_path, rel, 
 
 
 def test_a_file_that_doesnt_compose_names_only_the_file(tmp_path):
+    """@AC-audience_db-22. A file that doesn't compose stops the build."""
     files = {**FILES, "fx-a": {REL: "entries:\n- id: stemA\n  senses: glossqx\n"}}
     reg, _ = setup(tmp_path, files)
     with pytest.raises(adb.BuildError, match="doesn't compose") as e:
@@ -171,6 +182,7 @@ def test_a_file_that_doesnt_compose_names_only_the_file(tmp_path):
 
 
 def test_symlinks_are_refused(tmp_path):
+    """@AC-audience_db-20. Symbolic links stop the build."""
     reg, _ = setup(tmp_path)
     link = tmp_path / "stores" / "fx-c" / "fx-link.md"
     try:
@@ -182,6 +194,7 @@ def test_symlinks_are_refused(tmp_path):
 
 
 def test_cli(tmp_path, capsys):
+    """@AC-audience_db-25. The command prints counts only."""
     import build_audience_db as cli
     _, reg_file = setup(tmp_path)
     out = tmp_path / "build" / "fx-c.sqlite"
@@ -197,6 +210,7 @@ def test_cli(tmp_path, capsys):
 
 
 def test_restricted_keys_and_files_held_only_above(tmp_path):
+    """@AC-audience_db-5. Keys and files held only above."""
     files = {**FILES, "fx-c": {**FILES["fx-c"],
              REL: "entries:\n- id: stemQ\n  info:\n    fxkeyq1: true\n    fxkeyq2: null\n",
              "fx-only-c.yaml": "fxtopq:\n  fxnestq: plain\n"}}
@@ -211,6 +225,7 @@ def test_restricted_keys_and_files_held_only_above(tmp_path):
 
 
 def test_comments_are_read_outside_scalars(tmp_path):
+    """@AC-audience_db-9. Comments are read outside scalars."""
     body = "a: x # fxcmtq\nnote: 'has # fxnotq'\nb: |\n  # fxblkq\n  y\n"
     files = {**FILES, "fx-c": {"fx-cmt.yaml": body}}
     reg, _ = setup(tmp_path, files)
@@ -222,6 +237,7 @@ def test_comments_are_read_outside_scalars(tmp_path):
 
 
 def test_model_rows_point_at_the_adding_line(tmp_path):
+    """@AC-audience_db-4. Model rows point at the adding line."""
     db, _ = build(tmp_path)
     with db:
         assert db.con.execute(
@@ -230,6 +246,7 @@ def test_model_rows_point_at_the_adding_line(tmp_path):
 
 
 def test_wrapped_passages_in_notes(tmp_path):
+    """@AC-audience_db-8. A passage wrapping across lines matches."""
     files = {**FILES, "fx-c": {"fx-wrap.md": "one two three\nfour five six\n"}}
     reg, _ = setup(tmp_path, files)
     out = tmp_path / "build" / "fx-c.sqlite"
@@ -240,18 +257,16 @@ def test_wrapped_passages_in_notes(tmp_path):
         ).fetchone() == (1,)
 
 
-@pytest.mark.parametrize("body, msg", [
-    ("a: &x [1]\nb: *x\n", "uses an alias"),
-    ("a: 1\n---\nb: 2\n", "more than one YAML document"),
-])
-def test_aliases_and_multiple_documents(tmp_path, body, msg):
-    files = {**FILES, "fx-c": {"fx-odd.yaml": body}}
+def test_multiple_documents_stop_the_build(tmp_path):
+    """@AC-audience_db-21. A YAML file holding more than one document stops the build."""
+    files = {**FILES, "fx-c": {"fx-odd.yaml": "a: 1\n---\nb: 2\n"}}
     reg, _ = setup(tmp_path, files)
-    with pytest.raises(adb.BuildError, match=msg):
+    with pytest.raises(adb.BuildError, match="more than one YAML document"):
         adb.build(reg, "fx-c", tmp_path / "build" / "fx-c.sqlite")
 
 
 def test_refuses_an_output_inside_a_git_working_tree(tmp_path):
+    """@AC-audience_db-24. No database inside a git working tree."""
     reg, _ = setup(tmp_path)
     (tmp_path / "fx-repo" / ".git").mkdir(parents=True)
     with pytest.raises(adb.BuildError, match="git working tree"):
@@ -259,6 +274,7 @@ def test_refuses_an_output_inside_a_git_working_tree(tmp_path):
 
 
 def test_every_table_and_row_carries_a_tier(tmp_path):
+    """@AC-audience_db-17. Every table and row carries a tier."""
     db, rep = build(tmp_path)
     with db:
         assert db.classification == "fx-c"
@@ -282,6 +298,7 @@ def test_every_table_and_row_carries_a_tier(tmp_path):
     "UPDATE model_passage SET tier = 'fx-open' WHERE tier = 'fx-c'",
 ])
 def test_opening_a_database_checks_its_tiers(tmp_path, tamper):
+    """@AC-audience_db-17. Opening a database checks its tiers."""
     reg, _ = setup(tmp_path)
     out = tmp_path / "build" / "fx-c.sqlite"
     adb.build(reg, "fx-c", out)
@@ -294,6 +311,7 @@ def test_opening_a_database_checks_its_tiers(tmp_path, tamper):
 
 
 def test_a_git_store_is_read_by_what_git_holds(tmp_path):
+    """@AC-audience_db-19. A git store is what git holds."""
     import subprocess
     reg, _ = setup(tmp_path)
     store = tmp_path / "stores" / "fx-c"
@@ -311,6 +329,7 @@ def test_a_git_store_is_read_by_what_git_holds(tmp_path):
 
 
 def test_a_text_file_is_layered_line_by_line(tmp_path):
+    """@AC-audience_db-7. Text files are layered line by line."""
     files = {**FILES,
              "fx-open": {**FILES["fx-open"], "fx-shared.md": "one shared line here\n"},
              "fx-c": {**FILES["fx-c"], "fx-shared.md": "one shared line here\nfxonlyc line\n"}}
@@ -318,7 +337,7 @@ def test_a_text_file_is_layered_line_by_line(tmp_path):
     out = tmp_path / "build" / "fx-c.sqlite"
     adb.build(reg, "fx-c", out)
     with adb.AudienceDB(out) as db:
-        assert db.model_tiers("one shared line here") == {"fx-open"}     # restated by fx-c
+        assert db.model_tiers("one shared line here") == {"fx-open", "fx-c"}   # fx-c writes it too
         assert db.model_tiers("fxonlyc line") == {"fx-c"}
 
 
@@ -342,20 +361,24 @@ def test_a_text_file_is_layered_line_by_line(tmp_path):
     ("READ*.md", "sub/READX.md", True),
 ])
 def test_exclusion_patterns(pat, rel, hit):
+    """@AC-audience_db-14. How exclusion patterns match."""
     assert adb.excluded([pat], rel) is hit
 
 
 @pytest.mark.parametrize("line", ["!keep.md", "docs/a#b", "[ab].md", "a\\b.md"])
 def test_unsupported_exclusion_syntax_is_an_error(line):
+    """@AC-audience_db-14. Unsupported pattern syntax is an error."""
     with pytest.raises(adb.BuildError, match="unsupported"):
         adb.parse_patterns(line + "\n")
 
 
 def test_exclusion_comments_and_blanks():
+    """@AC-audience_db-14. Comments and blank lines in the list."""
     assert adb.parse_patterns("# a comment\n\n/README.md\n") == ["/README.md"]
 
 
 def test_lines_without_letters_or_digits_arent_material(tmp_path):
+    """@AC-audience_db-10. Lines without letters or digits."""
     files = {**FILES, "fx-c": {**FILES["fx-c"], "fx-c-table.md": "---\n| --- | --- |\nfxrowq cell\n"}}
     reg, _ = setup(tmp_path, files)
     out = tmp_path / "build" / "fx-c.sqlite"
@@ -364,3 +387,127 @@ def test_lines_without_letters_or_digits_arent_material(tmp_path):
         assert db.model_tiers("---") == set() and db.model_tiers("| --- | --- |") == set()
         assert db.model_tiers("fxrowq cell") == {"fx-c"}
         assert db.con.execute("SELECT count(*) FROM source_value WHERE norm = '---'").fetchone()[0] >= 1
+
+
+def test_the_audiences_own_kit_folder_isnt_read(tmp_path):
+    """@AC-audience_db-11. The audience's own .lectkit/ isn't read; a lower store's is."""
+    files = {**FILES, "fx-c": {**FILES["fx-c"], ".lectkit/fx-kit.md": "fxkitc line\n"},
+             "fx-a": {**FILES["fx-a"], ".lectkit/fx-kit.md": "fxkita line\n"}}
+    reg, _ = setup(tmp_path, files)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        assert db.con.execute("SELECT count(*) FROM source_value WHERE tier = 'fx-c' "
+                              "AND rel LIKE '.lectkit/%'").fetchone() == (0,)
+        assert db.model_tiers("fxkitc line") == set()
+        assert db.model_tiers("fxkita line") == {"fx-a"}
+
+
+def test_store_digests_follow_each_store(tmp_path):
+    """@AC-audience_db-12. A digest per store read, changed by a file or the exclusion list."""
+    reg, _ = setup(tmp_path)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        before = db.digests
+    assert set(before) == {"fx-open", "fx-a", "fx-c"}
+    (tmp_path / "stores" / "fx-a" / REL).write_text("entries:\n- id: stemA\n", encoding="utf-8")
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        after = db.digests
+    assert after["fx-a"] != before["fx-a"]
+    assert after["fx-open"] == before["fx-open"] and after["fx-c"] == before["fx-c"]
+    kit = tmp_path / "stores" / "fx-a" / ".lectkit" / "not_material.txt"
+    kit.parent.mkdir(parents=True, exist_ok=True)
+    kit.write_text("fx-readme.md\n", encoding="utf-8")
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        assert db.digests["fx-a"] != after["fx-a"]
+
+
+def test_a_tiers_excluded_files_are_source_but_not_material(tmp_path):
+    """@AC-audience_db-13. Files a tier lists as not its material are read as source only."""
+    files = {**FILES,
+             "fx-open": {**FILES["fx-open"], ".lectkit/not_material.txt": "fx-readme.md\n"},
+             "fx-c": {**FILES["fx-c"], ".lectkit/not_material.txt": "# fx comment\nfx-note.md\n"}}
+    reg, _ = setup(tmp_path, files)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        assert db.model_tiers("A short note: fxnote.") == set()
+        assert db.model_tiers("glossqy") == {"fx-c"}                  # the rest is material
+        assert db.con.execute("SELECT count(*) FROM source_value WHERE tier = 'fx-c' "
+                              "AND rel = 'fx-note.md'").fetchone() == (1,)
+        # A lower store's README is still read as source, so it's screened whole.
+        assert db.con.execute("SELECT count(*) FROM source_value WHERE tier = 'fx-open' "
+                              "AND rel = 'fx-readme.md'").fetchone() == (1,)
+        assert db.model_tiers("fx-readme.md") == set()   # the list itself isn't material
+
+
+def test_short_values_of_structure_fields_arent_material(tmp_path):
+    """@AC-audience_db-15. Listed structure fields: short values and closed frontmatter lines."""
+    files = {**FILES, "fx-c": {
+        ".lectkit/structure.yaml": "fields: [status]\n",
+        "fx-st.yaml": "entries:\n- id: fxs1\n  status: fxdraftq\n  w: fxkeepq\n"
+                      "- id: fxs2\n  status: fxone fxtwo fxthree fxfour\n",
+        "fx-st.md": "---\nstatus: fxmdq\ntitle: fxtitleq\n---\nfxbodyq\n",
+        "fx-open.md": "---\nstatus: fxopenfenceq\n"}}
+    reg, _ = setup(tmp_path, files)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        assert db.model_tiers("fxdraftq") == set()
+        assert db.model_tiers("fxkeepq") == {"fx-c"}
+        assert db.model_tiers("fxone fxtwo fxthree fxfour") == {"fx-c"}   # long: content
+        assert db.model_tiers("status: fxmdq") == set()
+        assert db.model_tiers("title: fxtitleq") == {"fx-c"}
+        assert db.model_tiers("status: fxopenfenceq") == {"fx-c"}         # unclosed: no frontmatter
+        assert db.con.execute("SELECT count(*) FROM source_value WHERE norm = 'fxdraftq'"
+                              ).fetchone() == (1,)
+
+
+def test_a_term_registers_rules_and_keys_arent_material(tmp_path):
+    """@AC-audience_db-16. In a term register, terms and keys aren't material; labels are."""
+    reg, reg_file = setup(tmp_path)
+    reg_file.write_text(FX_TIERS.replace(
+        "store: {path: stores/fx-c, remote: none}}",
+        "store: {path: stores/fx-c, remote: none}, terms: [stores/fx-c/fx-terms.yaml]}"),
+        encoding="utf-8")
+    (tmp_path / "stores" / "fx-c" / "fx-terms.yaml").write_text(
+        "terms:\n- term: fxtermq\n  variants: [fxvarq]\n  label: fx label words here\n",
+        encoding="utf-8")
+    reg = tiers.load(reg_file)
+    assert reg.problems == []
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        for rule in ("fxtermq", "fxvarq", "terms", "term", "label"):
+            assert db.model_tiers(rule) == set(), rule
+        assert db.model_tiers("fx label words here") == {"fx-c"}
+        assert db.con.execute("SELECT count(*) FROM source_value WHERE norm = 'fxtermq'"
+                              ).fetchone() == (1,)
+
+
+
+def test_an_aliased_value_is_recorded_once_at_its_anchor(tmp_path):
+    """@AC-audience_db-26. An aliased value is recorded once, at its anchor's line."""
+    files = {**FILES, "fx-c": {"fx-alias.yaml": "a: &x {w: fxaliasq}\nb: *x\nc: *x\n"}}
+    reg, _ = setup(tmp_path, files)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)
+    with adb.AudienceDB(out) as db:
+        rows = db.con.execute("SELECT line FROM source_value WHERE norm = 'fxaliasq'").fetchall()
+        assert rows == [(1,)]
+        assert db.model_tiers("fxaliasq") == {"fx-c"}
+
+
+def test_kit_files_never_layer_across_tiers(tmp_path):
+    """@AC-audience_db-4. Kit folders belong to their own tier and never layer across tiers."""
+    files = {**FILES,
+             "fx-open": {**FILES["fx-open"], ".lectkit/fxsettings.yaml": "fxkey: [a, b]\n"},
+             "fx-a": {**FILES["fx-a"], ".lectkit/fxsettings.yaml": "fxkey: {x: 1}\n"}}
+    reg, _ = setup(tmp_path, files)
+    out = tmp_path / "build" / "fx-c.sqlite"
+    adb.build(reg, "fx-c", out)                     # a layered file would differ in type here
+    with adb.AudienceDB(out) as db:
+        assert "fx-a" in db.model_tiers("fxkey")    # each copy is still its tier's material

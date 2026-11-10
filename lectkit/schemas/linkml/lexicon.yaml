@@ -1,0 +1,95 @@
+id: https://lect-kit.example/schemas/lexicon
+name: lexicon
+title: Lexeme register
+description: >-
+  A register of lexemes. A higher tier adds senses, variants or other fields to a word a
+  lower tier holds, or adds whole new words.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  lectkit: https://lect-kit.example/schemas/lectkit/
+default_prefix: lectkit
+imports: [linkml:types, lectkit]
+annotations:
+  lectkit_files: "paradigm/lexicon-*.yaml"
+classes:
+  LexiconFile:
+    tree_root: true
+    attributes:
+      words:
+        range: Lexeme
+        multivalued: true
+        inlined_as_list: true
+        annotations: {lectkit_layering: key}
+  Lexeme:
+    extra_slots: {allowed: true}   # undeclared fields allowed, screened as material
+    attributes:
+      lexeme_id: {identifier: true, range: string}      # material: ids have held restricted terms
+      headword: {range: form, required: true}
+      gloss: {range: text, required: true}
+      part_of_speech: {range: PartOfSpeech, multivalued: true, required: true}   # open question 1
+      language: {range: VarietyStatus, required: true, inlined: true}
+      classification: {range: string, required: true}   # a tier of the project's register; the kit names none
+      works:
+        range: WorkLinks
+        inlined: true
+        description: >-
+          Where this word is in other published works: work id to the word's identifier
+          in that work. Keys resolve to corpus/sources/<id>/work.yaml. A higher tier adds
+          entries and never changes one (project custodian's ruling, 2026-11-08).
+        annotations: {lectkit_layering: add_only}
+      senses:
+        range: text
+        multivalued: true
+        annotations: {lectkit_layering: stack}
+      merged_from: {range: string, multivalued: true}   # retired ids: nothing to resolve to
+      denotes: {range: Denotation}
+      semantic_subclass: {range: string}                # verbs; becomes an enum when listed
+      variants: {range: form, multivalued: true}
+      inflecting_variants: {range: form, multivalued: true}
+      derived_from: {range: Derivation, inlined: true}
+  WorkLinks:
+    description: Keys are work ids, values the word's identifier in that work. Both are material.
+    extra_slots:
+      allowed: true
+      range_expression: {range: string}
+  VarietyStatus:
+    extra_slots: {allowed: true}   # undeclared fields allowed, screened as material
+    description: Attestation status per variety. A project adds a slot per lect it models.
+    attributes:
+      gr: {range: AttestationStatus}
+      yr: {range: AttestationStatus}
+      yy: {range: AttestationStatus}
+  Derivation:
+    extra_slots: {allowed: true}   # undeclared fields allowed, screened as material
+    attributes:
+      lexeme: {range: Lexeme, required: true}           # reference: must resolve in the audience
+      slot: {range: string, required: true}             # reference to a slot; see slot-table
+      relation: {range: DerivationRelation}
+      status: {range: string}                           # evidence: left undeclared-ish, open question 3
+      why: {range: text}                                # evidence: open question 3
+enums:
+  PartOfSpeech:
+    permissible_values:
+      noun: {}
+      adjective: {}
+      adverb: {}
+      suffix: {}
+      pronoun: {}
+      particle: {}
+      exclamation: {}
+      place name: {}
+      question word: {}
+      demonstrative: {}
+      classifier: {}
+      conjunction: {}
+      quantifier: {}
+      verb: {}
+  AttestationStatus:
+    permissible_values:
+      confirmed: {}
+      not_confirmed: {}
+      not_expected: {}
+  Denotation:
+    permissible_values: {person: {}, animal: {}, object: {}, food: {}, plant: {}}
+  DerivationRelation:
+    permissible_values: {extended: {}, opaque: {}}

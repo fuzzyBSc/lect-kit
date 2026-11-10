@@ -1,0 +1,7 @@
+format: slot-table
+description: >-
+  The inflection slots of a word class, each identified by its name.
+files: ["paradigm/noun-slots.yaml", "paradigm/verb-slots.yaml"]
+lists:
+  noun_slots: {key: name}
+  verb_slots: {key: name}

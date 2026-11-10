@@ -38,6 +38,17 @@ for training" are a request, and not every collector honours them. For anything
 sensitive, the safest choice is not to put it online. Keep it on your own computers or
 behind a login only your people have.
 
+**Let the kit mark everything it publishes.** Unless your community decides otherwise,
+everything the kit publishes for you says it may not be used to train AI. It says so in
+words on every page and in every file people can download. It also carries the signals
+that AI companies' collectors are meant to check: notes in each page, notes inside
+pictures, sound files and PDFs, a `robots.txt` file that tells collectors to stay out,
+and website settings (such as an `.htaccess` file) that turn away the collectors the
+kit knows by name. The kit keeps its list of collectors and signals up to date. When
+you build, it tells you which of these your web host will actually use, because some
+hosts ignore some of them. Only turning collectors away actually stops them, and only on
+hosts that support it. The rest are requests.
+
 **Choose services whose terms don't train on your data, and check those terms
 yourself.** AI providers handle your data differently, and their terms change. Before
 anyone sends your material to an AI service, find out:

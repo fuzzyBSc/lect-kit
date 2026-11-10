@@ -1,0 +1,11 @@
+format: historical-spelling
+description: >-
+  One source's spelling correspondences: grapheme rules, each with worked examples, and the
+  source's word list. A higher tier adds rows, or adds fields to a rule a lower tier holds,
+  joining on the rule's `id`. Word-list rows and examples carry no identifier and stack by
+  value: `historical` is a list of alternatives, so it can't be a join key. Field types are
+  in linkml/historical-spelling.yaml.
+files: ["paradigm/historical_spelling_*.yaml"]
+lists:
+  grapheme_correspondences: {key: id}
+  grapheme_rules: {key: id}

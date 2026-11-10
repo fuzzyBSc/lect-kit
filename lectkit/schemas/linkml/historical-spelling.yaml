@@ -1,0 +1,102 @@
+id: https://lect-kit.example/schemas/historical-spelling
+name: historical-spelling
+title: Historical spelling correspondences
+description: >-
+  How one source's spellings map to the modern orthography: grapheme correspondences,
+  each with worked examples, and the source's word list. Only the shared core is declared.
+  A source file's own headings (a named passage, a column defect) stay undeclared, so they
+  are screened as material and listed by check_formats.py. `historical` and `modern` are
+  always lists of alternatives (project custodian's ruling, 2026-11-09).
+prefixes:
+  linkml: https://w3id.org/linkml/
+  lectkit: https://lect-kit.example/schemas/
+default_prefix: lectkit
+imports: [linkml:types, lectkit]
+classes:
+  HistoricalSpellingFile:
+    tree_root: true
+    extra_slots: {allowed: true}
+    attributes:
+      source: {range: SourceDescription}
+      anchors: {range: SpellingExample, multivalued: true, inlined_as_list: true}
+      related_sources: {range: RelatedSource, multivalued: true, inlined_as_list: true}
+      grapheme_rules: {range: Correspondence, multivalued: true, inlined_as_list: true}
+      grapheme_correspondences: {range: Correspondence, multivalued: true, inlined_as_list: true}
+      not_expressible: {range: Distinction, multivalued: true, inlined_as_list: true}
+      word_list: {range: SpellingExample, multivalued: true, inlined_as_list: true}
+  SourceDescription:
+    description: Who recorded the source, when, and how far its spelling can be trusted.
+    extra_slots: {allowed: true}
+    attributes:
+      author: {range: text}
+      date: {any_of: [{range: integer}, {range: string}]}   # a year, or a span in words
+      attestation_date: {any_of: [{range: integer}, {range: string}]}
+      publication: {range: text}
+      language_recorded: {range: text}
+      language: {range: text}
+      method: {range: text}
+      route: {range: text}
+      informants: {range: text}
+      phonemic_accuracy: {range: text}
+      reliability_tier: {range: string}
+      directness_tier: {range: string}
+      tier: {range: string}
+  RelatedSource:
+    extra_slots: {allowed: true}
+    attributes:
+      source: {range: string}
+      relation: {range: text}
+      fidelity_measured_at: {range: FidelityMeasure}
+  FidelityMeasure:
+    description: Where this source's copy and a related one disagree, measured row by row.
+    extra_slots: {allowed: true}
+    attributes:
+      would_change_a_normalisation: {range: FidelityGroup}
+  FidelityGroup:
+    extra_slots: {allowed: true}
+    attributes:
+      rows: {range: FidelityRow, multivalued: true, inlined_as_list: true}
+  FidelityRow:
+    extra_slots: {allowed: true}
+    attributes:
+      unit: {range: string}
+      this: {range: text}                                # this source's row, as written: material
+      fair_copy: {range: text}                           # the related copy's row: material
+      direction: {range: text}
+      effect: {range: text}
+  Correspondence:
+    extra_slots: {allowed: true}
+    attributes:
+      id: {range: string}                                # material: the join key for layers
+      historical: {range: form, multivalued: true}      # alternatives: [dh] or [dh, d]
+      modern: {range: form, multivalued: true}
+      confidence: {range: Confidence}
+      context: {range: text}
+      notes: {range: text}
+      examples: {range: SpellingExample, multivalued: true, inlined_as_list: true}
+      also_word_medially: {range: SpellingExample, multivalued: true, inlined_as_list: true}
+      counter_examples: {range: text}
+  Distinction:
+    extra_slots: {allowed: true}
+    attributes:
+      distinction: {range: text}
+      status: {range: text}
+      consequence: {range: text}
+  SpellingExample:
+    extra_slots: {allowed: true}
+    attributes:
+      historical: {range: form, multivalued: true}
+      modern: {range: form, multivalued: true}
+      gloss: {range: text}
+      meaning: {range: text}
+      parker: {range: form}                              # Parker's register names its spelling column `parker`
+      alternatives: {range: form, multivalued: true}      # further readings, beyond `modern`
+      confidence: {range: Confidence}
+      source: {range: text}
+      pattern: {range: text}
+      checked: {range: text}                             # a reviewer's sign-off reason
+      unit: {range: string}                              # anchor in the source: material
+      note: {range: text}
+enums:
+  Confidence:
+    permissible_values: {confirmed: {}, high: {}, medium: {}, low: {}, probable: {}, unverified: {}, none: {}}

@@ -1,0 +1,22 @@
+# The kit's standard layout of a store (knowledge/spec_classification.md, "Standard layout").
+# Every project starts from it. Project custodian's ruling, 2026-11-08: the kit owns file
+# name patterns and directory structure, so projects are regular as a starting point.
+layout: 1
+directories:
+  - path: paradigm
+    holds: the model of the language, one file per format
+    every_file_has_a_format: true
+  - path: knowledge
+    holds: internal working notes; never rendered
+  - path: corpus
+    holds: recorded evidence
+  - path: guides
+    holds: published writing built from the model and the evidence
+  - path: render
+    holds: page wording and labels for the kit's renderers, one file per page
+    every_file_has_a_format: true
+  - path: .lectkit
+    holds: this tier's own decisions and its format map
+  - path: renderings
+    holds: rendered output, never committed
+    ignored: true

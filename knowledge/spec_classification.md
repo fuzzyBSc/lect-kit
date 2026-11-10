@@ -169,11 +169,12 @@ entries:
   whose file added it. A field inside a file that names a tier isn't read as one.
 - **Order comes from the register.** Composing for an audience reads the file from the
   audience's own store and from every store its `sees` list names, and applies each tier
-  after every tier it sees. Formats declare nothing about layering.
-- **A higher layer only adds.** The rule is the same for every format:
+  after every tier it sees.
+- **A higher layer only adds.** The rule is the same for every format; what differs is which
+  field identifies a record, and that comes from the format's schema (below):
   - a mapping key a lower layer lacks is added; one it has is merged if both values are
     mappings or both are lists, and must be equal otherwise;
-  - in a list, a mapping with an `id` joins the lower item with the same `id` and merges
+  - in a list, a mapping with the list's identifier (`id` for a file with no format) joins the lower item with the same `id` and merges
     into it; a new `id` is appended; any other item (a plain value, or a mapping
     without an `id`) is appended unless an equal item is already there.
   Nothing a lower layer holds is changed, reordered or removed. A differing value, or a
@@ -196,6 +197,198 @@ entries:
 - **Files are read strictly** (`lectkit/yamlio.py`): a repeated key is an error, only
   `true`/`false` are booleans (so words like `no` and `on` stay text), and dates stay
   text.
+
+### Formats and schemas (built: `lectkit/formats.py`, `lectkit/schemas/`)
+
+*Project custodian's ruling, 2026-11-08 (R19 as reworded):* how each format layers comes
+from that format's schema in the kit. There is no generic overlay format, and the kit knows
+every format a project holds, so its renderers and other engines can work from the schemas.
+
+- **A schema** (`lectkit/schemas/<format>.yaml`) gives the format's name and, for each list
+  that holds records, the field that identifies a record: `words: {key: lexeme_id}`. A list
+  path joins mapping keys with `/` and may use `*`. Identifiers keep names that say what they
+  identify. A list the schema names with no key, or doesn't name, stacks by value.
+- **Under a schema**, a record in a keyed list must carry its identifier, unique in the list,
+  and a field called `id` is ordinary. `replaces` works on the list's identifier.
+- **Sub-records get an identifier only when needed** (R18 as reworded): a higher tier's senses
+  stack onto the lower tier's list until a tier needs to extend or cite one particular sense.
+- **The kit owns the standard layout** (project custodian's ruling, 2026-11-08), so projects
+  are regular as a starting point. Each schema names the file name patterns that hold its
+  format (`files: ["paradigm/lexicon-*.yaml"]`), and `lectkit/layout.yaml` names a store's
+  standard directories, marking those whose every file must have a format. Two kit patterns
+  claiming one file is an error.
+- **A project adds to the layout** in `.lectkit/formats.yaml` (`files: [{path, format}]`) for
+  files the patterns don't cover. The map is layered like any file, identified by `path`, so a
+  higher tier can map a file it adds but can't change a lower tier's mapping. It can't give a
+  file a different format from the one the kit's pattern names, and a format the kit has no
+  schema for is an error.
+- **A schema is written when something needs it**: a tier adds to the format, or a renderer or
+  other engine reads it (project custodian, 2026-11-08). Files without one stay listed by
+  `check_formats.py` until then.
+- **A file nothing claims is refused.** `compose_layers.py` exits 1 for it, and
+  `check_formats.py --store DIR` lists every file in a formatted directory that no format
+  claims. There is no fallback to joining on `id`; that rule is now only for code that
+  composes a document without a schema.
+
+### Field schemas (decided, not yet built)
+
+*Project custodian's rulings, 2026-11-08, from a grilling round.* Schemas grow from layering
+rules into field descriptions, so that engines (rendering, scoring, checking, practice) and
+classification screening work from them. Until this is built, the "Structure isn't
+material" rule in the audience-database section stays in force.
+
+- **Ownership.** The kit ships the standard formats. A project, and each tier within it,
+  may add fields and enumeration values in its own store (`.lectkit/schemas/<format>.yaml`),
+  composed add-only over the kit's. Nobody may change what a declared field is. A value
+  declared only in a restricted tier's layer never appears below it.
+- **Field kinds.** identifier, reference, enumeration, language-form, and free text as the
+  fallback. Enumerations are open: extensions add values. Language-form marks a spelling
+  in the language, so the scan applies term registers to it as a form, and engines can
+  find forms without project code.
+- **What is material.** Identifiers and references are material and are screened: lexeme
+  ids have held restricted terms. A field name the schema declares is structure. An
+  enumeration value declared in a schema visible to that tier is structure, and an
+  undeclared value is screened. Everything else is material. The three-word rule and
+  `.lectkit/structure.yaml` are retired once this is built.
+- **References resolve within the audience.** A reference must resolve to a record the
+  audience of its own tier can see. One that doesn't resolve fails validation, because it
+  may point at material from a more restricted tier.
+- **Validation.** The kit validates declared fields strictly: type, required and
+  enumeration membership. Undeclared fields are allowed, screened as material, and listed
+  by `check_formats.py` so that they get declared.
+- **No schema yet.** A file whose format has no schema is screened whole as material.
+- **Markdown.** A markdown format's schema describes its frontmatter. The body is free
+  text.
+- **Order of work.** Schemas are still written as they are needed, with the project
+  custodian consulted on each. The first need is the formats behind the single published
+  nouns page, the minimum viable product: the lower-tier repositories and lect-kit
+  committed and pushed with that one page published. After that, the formats producing
+  the most screening noise come first.
+- **What the noise is (measured 2026-11-08).** Screening the project's base tier for the
+  tier just above it held 21,877 lines. 13 matched items caused all of them, and 12 of the 13
+  were field names (`headword`, `gloss`, `lexeme_id`) or field values (`noun`, `confirmed`)
+  that the base tier writes itself. Screening it for the next tier up held 23,366 lines, and
+  about 25,600 of its hits came from 14 such items. With those set aside, about 175 lines
+  were left. About 95 of those matched that tier's term register and about 80 were five-word
+  passages it shared with the base tier. The higher tiers do not repeat the base tier's content. They
+  reuse its format words.
+- **Format words need no grant.** Project custodian's ruling, 2026-11-08. A field name the
+  kit's schema declares, or an enumeration value it declares, belongs to lect-kit and not to
+  any tier, so no higher tier has to grant it. Everything a tier writes into a field is the
+  tier's own material: identifiers, spellings, glosses and prose. Built in
+  `lectkit/format_words.py`: a declared field name is format only where it is a key, and a
+  declared value only where it is the whole value of a field whose range is that
+  enumeration.
+- **lect-kit can't declassify on its own.** Project custodian's ruling, 2026-11-08. Every
+  audience build first checks that no format word is material in any tier store on this
+  machine. If a tier's term register matches a format word, or a restricted tier writes one
+  as an identifier, the build stops. The error names the format word and the tier, and
+  never the tier's term. A clash is fixed by renaming the field or value in the kit, or by
+  the tier withdrawing its term, and never by narrowing the check
+  (`features/cross_tier_scan.feature` @AC-cross_tier_scan-24, -25).
+- **The higher tier grants everything else.** Project custodian's ruling, 2026-11-08. It is
+  for the higher tier to decide which parts of its data are restricted, and to give a lower
+  tier permission to publish a part, even a single word. A higher tier that names an
+  identifier defined in a lower tier still needs a recorded grant before the lower tier's
+  uses of that identifier pass. The grant goes in the higher tier's store.
+- **Who records a grant.** Project custodian's ruling, 2026-11-08. An agent working in the
+  higher tier's checkout drafts each grant with its reason. The project custodian approves
+  the batch in one ask, with each item shown by tier and count, and only then is it
+  recorded under his name.
+- **Where a grant lives.** Project custodian's ruling, 2026-11-09. A grant is recorded only
+  in the granting (higher) tier's store, and names only a tier below it. The lower tier
+  never records its own grant. If it has to record anything, it records only the hash and
+  the fact of the grant: a review keeps the reviewed line's hash and the matched items as
+  digests under the granting tier's own key. Every scan reads a tier's grants from that
+  tier's store and applies them only to that tier's material. A grant or review that names
+  a tier the file's tier does not see, or names that tier itself, stops the scan
+  (`features/cross_tier_scan.feature` @AC-cross_tier_scan-27). Checked 2026-11-09: every
+  grant in every store names only lower tiers, and none of these files holds text from a
+  tier above the one it sits in.
+- **Grants are plain lists, and are screened.** Project custodian's rulings, 2026-11-09. A
+  grant file maps each lower tier to the list of items released to it, and nothing else; a
+  review file maps each lower tier to its reviewed lines' hashes. Who approved a grant and
+  when is the granting tier's commit, whose message the hook screens. The batch shape
+  (reason, approver, date per batch) is retired: its metadata was prose that the screen then
+  had to clear below. The files are the tier's material like any other.
+- **A text is granted only where the higher tier grants it.** Project custodian's ruling,
+  2026-11-09. A grant to gyy-general releases nothing to lect-kit. What a tier grants holds
+  every tier below the grantee until it is granted there too. A grant to a tier does hold for
+  the tiers that see it (@AC-cross_tier_scan-28).
+- **Tier names are explicit grants.** Project custodian's ruling, 2026-11-09. A tier's name
+  is its material like anything else it writes. It reaches a lower tier only by that tier's
+  grant (@AC-cross_tier_scan-26). The automatic exemption for registered names, built
+  2026-11-08, is withdrawn. Lower tiers avoid writing a higher tier's name where the
+  sentence doesn't need it: gyy-general's eight "held CULTURALLY-SENSITIVE, not cited"
+  notes now say "held in a higher tier". lect-kit's schemas name no project's tiers, and a
+  classification is any tier of the project's register.
+- **Everything a gendered tier holds is material.** Project custodian's ruling, 2026-11-09.
+  The two gendered tiers are screened against in full, research notes included; there is no
+  declared-register shortcut. Their noise is cut by what they hold and how they word it, never
+  by screening less.
+- **A first-pass filter stays inside its tier.** Project custodian's ruling, 2026-11-09. A
+  Bloom filter may speed a screen, built with the tier's own secret key and cached by store
+  state. It never leaves the tier: an unkeyed filter would let anyone test guessed words.
+- **One shared English list, granted by version.** Project custodian's ruling, 2026-11-09.
+  lect-kit keeps a versioned list of ordinary English and project wording. A tier grants a
+  version in one line. The build refuses a version that any tier's term register matches.
+- **Gendered tiers hold only what screening needs.** Project custodian's rulings, 2026-11-09.
+  The two gendered tiers keep the term register and paradigm layer rows; their research notes
+  live in the anki project's restricted folders. They write no project boilerplate: a ruling
+  is a structured field, not a sentence. The project custodian approves English-list versions
+  for every tier, the gendered tiers included, since the build guarantees no entry matches a
+  term register.
+- **How the screening-only scope is kept.** The register marks such a tier `scope:
+  screening`. Its pre-commit hook refuses a comment, a prose field in a term entry (anything
+  beyond the keys matching needs) or a note file, naming the file and line but never its text
+  (`lectkit/screening_scope.py`, @AC-cross_tier_scan-33). The prose moved out on 2026-11-10 is
+  kept in the project's restricted folder for that tier.
+- **A held commit says why it is held.** Each verdict counts its held lines by kind of match
+  (value, token, passage, term), and the hook prints the counts, so the screen's own noise
+  stays visible (@AC-proposal_scan-15).
+- **Noise first.** Project custodian's ruling, 2026-11-09: the English list and the gendered
+  tiers' noise come before speed and tooling.
+- **Every tier may name itself.** Project custodian's ruling, 2026-11-09. A tier's own id
+  and name are in the register every tier reads, so a line in a tier that names that tier
+  is never held for it, whichever higher tier also writes the name
+  (@AC-cross_tier_scan-30). Naming a *higher* tier still needs that tier's grant.
+- **A higher tier never restates; everything it writes is its material.** Project
+  custodian's ruling, 2026-11-10. It replaces the rule that a value a higher layer only
+  restates from below keeps the lower tier, which let a commit make a higher tier's value
+  its own by writing it into the same file (shown on test stores; the build judged "below"
+  from the tree being proposed). Now:
+  - Everything a higher tier's layer writes is that tier's material, the identifiers it uses
+    to attach to a lower record included. A lower tier may use such an identifier only once
+    the higher tier has released it, like any of that tier's material.
+  - File formats combine information so that a higher layer never has to restate what a
+    lower tier holds. A format that makes a layer restate a value is a defect in the format.
+  - Lower-tier information found inside a higher layer is re-judged through a
+    classification review, never settled by which history held it first.
+- **A proposal is always screened as a whole tree.** Project custodian's ruling, 2026-11-10.
+  Speed comes from how the screen matches, never from screening only what changed.
+- **English list version 2, and single letters aren't tokens.** Project custodian's
+  rulings, 2026-11-10. english-v2 is english-v1 plus three gloss words (blue, branch,
+  member) that held lect-kit lines, and every tier now grants v2 instead of v1. A run of
+  single letters is never a token match (@AC-cross_tier_scan-34): a phoneme pair such as
+  "n i" in a tier's material otherwise held code like `index(b"\n", i)`. A whole value
+  equal to the pair is still a match.
+- **Hashes and date-times are format; english-v3.** Project custodian's rulings, 2026-11-10.
+  A line is matched only after its hashes (7 to 64 hex characters with a digit and a
+  letter), ISO dates and date-times, and git timestamps are taken out of it
+  (`scan.mask_formats`, @AC-cross_tier_scan-35): they can't carry anyone's material, and a
+  list of hashes could never be kept in lect-kit. Entries, and so reviews, still key on the
+  line as written. english-v3 is v2 plus "au" and "id", which held commit author lines, and
+  every tier grants it.
+- **A commit's message and author lines are screened at commit** (@AC-commit_hooks-21).
+  The pre-commit hook can't see them, so they were first screened at push; a commit-msg
+  hook now screens them with the staged tree before the commit is made.
+- **Matching libraries are allowed, pinned and offline.** Project custodian's ruling,
+  2026-11-10. The screen may use compiled multi-pattern matchers (such as `ahocorasick_rs`
+  and `hyperscan`), installed at exact versions with file hashes, under a test that it makes
+  no network connection.
+- **Lexicons share one format.** Project custodian's ruling, 2026-11-08. The neighbour-lect
+  word lists (`paradigm/lects/*/lexicon.yaml`) move to the same lexicon schema as the GYY
+  lexicon.
 
 ## Builds are per audience
 
@@ -248,8 +441,9 @@ queries that.
     store read, with the store's tier, the file's relative path and the line number. This
     is what a scanner reports against.
   - `model_value`: every value, key and id as the composed model holds it (`Layered
-    files`), with the tier that added it and the line where that tier's file writes it. Layered YAML files are composed, so a value a higher tier
-    only restates keeps its lower tier. Other text files are layered too, line by line and
+    files`), with the tier that added it and the line where that tier's file writes it. Layered YAML files are composed. (A value a higher tier
+    only restates was credited to its lower tier; that rule is withdrawn, see "What a leak
+    looks like".) Other text files are layered too, line by line and
     paragraph by paragraph: copies at one path are one file, lowest tier first, and a line
     a lower copy already holds keeps that lower tier. Paragraphs let a passage that wraps
     across lines still match.
@@ -278,8 +472,10 @@ queries that.
   free-form mapping a key can be content.
 - **What a leak looks like, for the scanner.** A value in a store of tier L that equals
   (or shares a passage with) model material added by a tier L can't see is a candidate
-  leak. A value the higher tier only restates from below isn't its material, so it never
-  matches. An ordinary word that both tiers hold on their own does match, and a person
+  leak. Everything a higher tier's own file writes is its material, whatever a lower copy
+  of the file holds, identifiers included (the ruling "A higher tier never restates"). The
+  rule that a restated value kept its lower tier is withdrawn, and the build still applies it
+  until it is rebuilt. An ordinary word that both tiers hold on their own does match, and a person
   decides it, as with any spelling shared by an open and a restricted lexeme.
 - **A tier decides what isn't its material.** Every file a tier holds is its material by
   default, untracked files that aren't ignored included. The tier itself lists the
@@ -318,7 +514,8 @@ queries that.
   are the ones git tracks plus new ones it doesn't ignore. Ignored files, such as editor
   folders, caches and build output, aren't part of it. Elsewhere every file is read.
 - **Files.** A symbolic link anywhere in a store stops the build, and so does a YAML file
-  with an alias or more than one document. A file that isn't UTF-8
+  with more than one document. An alias is read as its anchor's content, recorded once,
+  at the anchor's line. A file that isn't UTF-8
   text stops it too, unless it's an image, audio or video file, which is counted and
   left out. A YAML file that doesn't parse or doesn't compose stops it. Errors name the
   store and file, never its content.
@@ -422,6 +619,15 @@ screens what L would hold after the commit.
   line-ending settings therefore can't change what's scanned. The index can't change
   between naming the tree and exporting it, either. A symbolic link or a submodule in the
   tree stops the scan.
+- **A screen reads only what can decide it** (`lectkit/material_cache.py`,
+  @AC-proposal_scan-17). Since a higher tier never restates, each tier's material depends
+  on its own store alone. A screen for tier T therefore reads every line of the proposed
+  tree, and the material of the tiers hidden from L, and nothing else: the material of
+  tiers L sees can't make a line of L a leak. T keeps that material in its own git folder
+  between screens, under a key made from every input it's computed from (each tier's
+  files, kit settings, the register, lect-kit's own code, schemas and lists, and the
+  Python and Unicode versions). A copy whose key differs is worked out again, so none is
+  ever stale. The proposal is still screened whole, and matching is never kept.
 - **Higher tiers are every tier whose `sees` list names L.** For each one whose store is
   on the machine, a separate process (`screen_for_tier.py`) builds that tier's audience
   database in a temporary folder, with L's store replaced by the export, scans L's store
@@ -594,6 +800,115 @@ The same flow, with a process doing the first pass for a human screener.
 - A **separation check** on config: no screener, process or store serves two tiers that
   are closed to each other.
 
+## Layered documents across tiers (drafted, not yet built)
+
+Most documents mix tiers. A document is therefore not stored whole in any one place.
+Each piece of it lives in the lowest tier it belongs to, and a reader's view is
+assembled by a build, the same way paradigm layers compose (*A paradigm split by tier*).
+Nothing is ever moved to a lower tier, so no step ever lowers a tier, and *Results take
+the tier of their inputs* holds without exception. This section is a draft for the
+project custodian to review, and nothing in it is built.
+
+### Base and fills
+
+- The **base** of a document lives in the lowest tier any part of it belongs to. It holds
+  the document as that tier's readers may see it, with a **gap** wherever something is
+  withheld.
+- A gap has an ID, an anchor, and a kind: `span` (a passage) or `word` (one token).
+- A **fill** lives in the store of the tier the gap's content belongs to, keyed to the
+  gap's ID. It holds everything about that content in every layer: the transcription,
+  the translation, glosses, the modern-spelling reading, the analysis records, the audio
+  stretch and the image region.
+- A fill can carry gaps of its own for content that belongs to a tier higher still.
+- A document with no part at a lower tier has no base there. It leaves no trace in any
+  tier its readers can't see.
+- Fills for two tiers that are closed to each other can hang off the same base. No store
+  ever holds the whole of such a document, and no audience needs to see it whole.
+
+### Assembling a view
+
+- A build for an audience loads the base and the fills from every store the audience
+  sees, and fills each gap it can. It never reads a store the audience doesn't see.
+- A gap the audience can't fill shows the project's **marker** (for a span) or the
+  **stand-in** (for a word).
+- Each store holds a fingerprint of the view its own readers get. The build checks that
+  the assembled view matches it.
+
+### What a lower view shows
+
+- **One marker for every withheld span.** It names no tier, gives no reason, and shows
+  nothing about the span's length. The community chooses the marker text, and the kit
+  checks that a project uses one marker everywhere.
+- **Anchors are kept.** A gap keeps its anchor numbers, so it is visible and citations
+  around it still resolve. An edit to a base can't move a gap's boundaries, and the
+  base's own check enforces this.
+- **Every layer has the same gap.** A gap covers all the layers keyed to its anchor. A
+  word gap's stand-in also appears in the base's translation and glosses.
+- **Audio and images.** The base's audio has a soft masking sound of the same length
+  where a gap is, for example faded pink noise and never a tone, so timestamps stay
+  aligned. A word gap is masked the same way and never voiced over with the stand-in.
+  The fill holds the original stretch. Image gaps are covered with a plain fill colour.
+
+### Stand-ins keep the original's morphology
+
+- A word gap in the base names a stand-in **root**. The surface form is built by applying
+  the original token's suffix chain to that root through the paradigm, so case and other
+  suffixing come out right. The base records the chain, and the fill records the
+  original root.
+- The check fails if the paradigm can't build the stand-in with that chain, or if the
+  stand-in root belongs to a tier above the base.
+- A community can rank the stand-ins it prefers in its tier register: for example, a
+  recorded avoidance word first, then a general word of the same class. The kit checks
+  that the order is followed, and doesn't choose the stand-in itself.
+
+### Supporting evidence
+
+- A stand-in root is not something anyone said. In a lower view, the token attests its
+  suffixes and does not attest the stand-in root.
+- A sentence with a word gap can be evidence for the other words in it. In a lower view
+  it is never evidence for the stand-in.
+- **Analysis is held twice.** The base holds an analysis of the sentence made with the
+  stand-in in place, which the lower view tests. The fill's tier holds the analysis made
+  with the real word, which its own view tests.
+- Measures are taken per view, and figures from different views are never compared.
+
+### Citations
+
+A citation resolves against the citing audience's assembled view. Staged citation text
+carries whatever that view shows (filled text, a marker or a stand-in), and the shared
+citation display renders a marker and a stand-in visibly. A citation into a gap the
+audience can't fill shows only the marker.
+
+### Corrections
+
+A correction is made in the store where the piece lives: base text in the base's tier,
+a gap's content in the fill's tier. Because base edits can't move gap boundaries, a base
+edit never breaks a fill. A change that needs a boundary moved is made by a reader who
+sees both tiers.
+
+### Cutting a document
+
+A document is cut into base and fills when it is ingested, after it has been read in
+full. Material that has been read only in part stays unread and isn't cut (*Every record
+carries a tier*: unread material is used by no build).
+
+- An agent may make the cut. A second agent, working independently, reviews it before any
+  piece is committed to a lower store. A disagreement goes to a person.
+- A document the restricted-term scan flags goes to a person, whatever the agents say.
+- The leak check and the term scan for each lower tier run on its pieces before commit,
+  and a hit blocks the commit. Once a piece is committed, its history can't be cleaned,
+  so these checks come first.
+
+### Checks
+
+- **Gap check:** every gap in a base has an ID and an anchor, and every fill names a gap
+  that exists.
+- **Boundary check:** a base edit leaves every gap's boundaries where they were.
+- **Stand-in check:** every word gap's stand-in builds with its recorded suffix chain.
+- **Assembly check:** each audience's assembled view matches its store's fingerprint, and
+  assembling twice gives identical files.
+- **Isolation check:** a store holds no fill for a tier other than its own.
+
 ## Storage
 
 A community may keep each tier in a separate place, such as its own repository with its
@@ -614,3 +929,6 @@ to the community's own process.
 - Whether unread material should get a build of its own, so the people screening it can
   work with the tools.
 - How search and the semantic index are split per audience.
+- The file formats for gaps and fills, and their schemas in `lectkit/schemas/`.
+- Whether a lower tier may ask for a gap to be reviewed, for example to restore a span,
+  and how that request reaches the tier above without carrying anything back down.

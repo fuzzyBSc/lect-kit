@@ -1,0 +1,60 @@
+id: https://lect-kit.example/schemas/slot-table
+name: slot-table
+title: Inflection slot table
+description: The inflection slots of a word class, each identified by its name.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  lectkit: https://lect-kit.example/schemas/lectkit/
+default_prefix: lectkit
+imports: [linkml:types, lectkit]
+annotations:
+  lectkit_files: "paradigm/noun-slots.yaml paradigm/verb-slots.yaml"
+classes:
+  SlotTableFile:
+    tree_root: true
+    attributes:
+      noun_slots: {range: NounSlot, multivalued: true, inlined_as_list: true}
+      # verb_slots: described when the verbs page needs it
+  NounSlot:
+    extra_slots: {allowed: true}   # undeclared fields allowed, screened as material
+    attributes:
+      name: {identifier: true, range: string}
+      group: {range: SlotGroup, required: true}
+      parts: {range: string, multivalued: true}    # becomes a reference to noun-cases rules (question 2)
+      stem: {range: form}
+      stems: {range: form, multivalued: true}
+      allomorph: {range: string}
+      host: {range: Denotation}
+      pos: {range: PartOfSpeech, multivalued: true}
+      suffix_by_final: {range: SuffixByFinal, inlined: true}
+      scope_basis: {range: ScopeBasis, inlined: true}
+      # tokens: undeclared on purpose (evidence, question 3): screened and listed
+  SuffixByFinal:
+    extra_slots: {allowed: true}   # undeclared fields allowed, screened as material
+    description: The suffix shape after each stem-final sound.
+    attributes:
+      a: {range: form}
+      i: {range: form}
+      ii: {range: form}
+      u: {range: form}
+      l: {range: form}
+      r: {range: form}
+      rr: {range: form}
+      y: {range: form}
+      n: {range: form}
+      d: {range: form}
+      g: {range: form}
+  ScopeBasis:
+    extra_slots: {allowed: true}   # undeclared fields allowed, screened as material
+    attributes:
+      kind: {range: ScopeKind}
+      reason: {range: text}
+enums:
+  SlotGroup:
+    permissible_values: {core: {}, stacked: {}, deriv: {}, disc: {}}
+  ScopeKind:
+    permissible_values: {lexical: {}, measured: {}}
+  Denotation:
+    permissible_values: {person: {}, animal: {}, object: {}, food: {}, plant: {}}
+  PartOfSpeech:
+    permissible_values: {noun: {}, adjective: {}, adverb: {}, pronoun: {}, demonstrative: {}, particle: {}}

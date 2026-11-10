@@ -1,0 +1,12 @@
+# Coverage for the kit's own code. See knowledge/feature_procedure.md.
+[run]
+source = lectkit, scripts
+parallel = true
+# Count scripts the tests start as subprocesses, including those git runs as hooks.
+patch = subprocess
+data_file = .coverage
+
+[report]
+fail_under = 90
+show_missing = true
+skip_covered = false

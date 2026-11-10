@@ -1,6 +1,7 @@
 """Check every markdown file in knowledge/ against lect-kit's OKF profile.
 
-The profile is in knowledge/README.md ("Frontmatter"). Exit 1 on any problem.
+The profile is in knowledge/README.md ("Frontmatter"). Frontmatter is read strictly
+(lectkit/yamlio.py), so a key given twice is an error. Exit 1 on any problem.
 
 Usage: python scripts/check_knowledge_frontmatter.py
 """
@@ -11,7 +12,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lectkit import yamlio  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE = ROOT / "knowledge"
@@ -25,10 +27,19 @@ ALLOWED = set(REQUIRED) | {"tags", "status", "generated", "verified", "sources",
 
 
 def frontmatter(text: str):
+    """Return the frontmatter mapping, None when there is none, or an error message."""
     m = re.match(r"---\n(.*?)\n---\n", text, re.S)
     if not m:
         return None
-    return yaml.safe_load(m.group(1)) or {}
+    try:
+        fm = yamlio.load(m.group(1))
+    except yamlio.YamlError as e:
+        if str(e).startswith("not valid YAML"):
+            return "frontmatter isn't valid YAML"
+        return f"frontmatter can't be read ({e})"
+    if fm is None:
+        return {}
+    return fm if isinstance(fm, dict) else "frontmatter isn't a mapping of keys"
 
 
 def is_datetime(v) -> bool:
@@ -62,7 +73,7 @@ def check(fm: dict) -> list[str]:
     for k in fm:
         if k not in ALLOWED:
             errs.append(f"unknown key {k}")
-    if "type" in fm and fm["type"] not in TYPES:
+    if "type" in fm and not (isinstance(fm["type"], str) and fm["type"] in TYPES):
         errs.append(f"type {fm['type']!r} not in the profile")
     title = fm.get("title")
     if title is not None and (not isinstance(title, str) or title.endswith(".") or not title.strip()):
@@ -73,15 +84,24 @@ def check(fm: dict) -> list[str]:
         if not d.endswith(".") or len(d) > 220 or re.search(r"\.\s+[A-Z]", d[:-1]):
             errs.append("description must be one sentence ending in a full stop, at most 220 characters")
     tags = fm.get("tags", [])
-    if not isinstance(tags, list) or len(tags) > 4 or any(t not in TAGS for t in tags):
+    if not isinstance(tags, list) or len(tags) > 4 or any(not isinstance(t, str) or t not in TAGS
+                                                            for t in tags):
         errs.append("tags must be a list of at most four profile tags")
-    if "status" in fm and fm["status"] not in STATUSES:
+    if "status" in fm and not (isinstance(fm["status"], str) and fm["status"] in STATUSES):
         errs.append("status must be draft, stable or deprecated")
     if "generated" in fm:
         errs += actor_event_errors(fm["generated"], "generated", human_only=False)
-    for ev in fm.get("verified", []) or []:
+    verified = fm.get("verified") or []
+    if not isinstance(verified, list):
+        errs.append("verified must be a list of {by, at}")
+        verified = []
+    for ev in verified:
         errs += actor_event_errors(ev, "verified", human_only=True)
-    for s in fm.get("sources", []) or []:
+    sources = fm.get("sources") or []
+    if not isinstance(sources, list):
+        errs.append("sources must be a list of {resource, id?}")
+        sources = []
+    for s in sources:
         if not isinstance(s, dict) or "resource" not in s or set(s) - {"resource", "id"}:
             errs.append("sources entries must be {resource, id?}")
     if "stale_after" in fm and not is_datetime(fm["stale_after"]):
@@ -97,6 +117,10 @@ def main() -> int:
         fm = frontmatter(f.read_text(encoding="utf-8"))
         if fm is None:
             print(f"[ERROR] {rel}: no frontmatter")
+            problems += 1
+            continue
+        if isinstance(fm, str):
+            print(f"[ERROR] {rel}: {fm}")
             problems += 1
             continue
         for e in check(fm):
