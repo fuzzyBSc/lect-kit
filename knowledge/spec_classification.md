@@ -379,6 +379,11 @@ material" rule in the audience-database section stays in force.
   list of hashes could never be kept in lect-kit. Entries, and so reviews, still key on the
   line as written. english-v3 is v2 plus "au" and "id", which held commit author lines, and
   every tier grants it.
+- **A passage never runs across a table's cell borders.** Project custodian's ruling,
+  2026-11-10 (@AC-cross_tier_scan-36). Five words joined across neighbouring cells aren't
+  text anyone wrote: a variety cell beside a speaker cell held an ordinary speaker citation
+  in a lower tier. Both the material's passages and the
+  lower line's run of words break at each `|`; five words inside one cell still match.
 - **A commit's message and author lines are screened at commit** (@AC-commit_hooks-21).
   The pre-commit hook can't see them, so they were first screened at push; a commit-msg
   hook now screens them with the staged tree before the commit is made.

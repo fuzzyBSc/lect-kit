@@ -175,9 +175,13 @@ def normalise(text: str) -> str:
 
 
 def passages(text: str) -> Iterator[str]:
-    w = re.findall(r"\w+", normalise(text))
-    for i in range(len(w) - PASSAGE_WORDS + 1):
-        yield " ".join(w[i:i + PASSAGE_WORDS])
+    """Every run of PASSAGE_WORDS words. A run never crosses a table's cell border (`|`):
+    words joined across neighbouring cells aren't what anyone wrote (project custodian's
+    ruling, 2026-11-10)."""
+    for cell in normalise(text).split("|"):
+        w = re.findall(r"\w+", cell)
+        for i in range(len(w) - PASSAGE_WORDS + 1):
+            yield " ".join(w[i:i + PASSAGE_WORDS])
 
 
 def store_files(tier: str, store: Path, skip_kit: bool = False) -> Iterator[Path]:

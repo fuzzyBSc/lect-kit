@@ -688,3 +688,13 @@ def test_hashes_and_date_times_are_format(tmp_path):
     acc = {**FIELD_NAMES, "fx-open": FIELD_NAMES["fx-open"] | {"nums", "v", "w"}}
     found = {(r, n) for t, r, n in where(run(tmp_path, files, accepted=acc)) if r == "log.md"}
     assert found == {("log.md", 3), ("log.md", 4)}
+
+
+def test_a_passage_never_runs_across_table_cells(tmp_path):
+    """@AC-cross_tier_scan-36. Cell borders break passages on both sides; a run inside a cell matches."""
+    files = with_files(**{"fx-c": {"fx-table.md": "| fxvar | alpha beta gamma delta | eps zeta eta theta iota |\n"},
+                          "fx-open": {"cross.md": "fxvar alpha beta gamma delta\n",
+                                      "inside.md": "eps zeta eta theta iota\n",
+                                      "cells.md": "| eps zeta | eta theta iota |\n"}})
+    found = {r for t, r, n in where(run(tmp_path, files)) if r.endswith(".md") and r != "fx-notes.md"}
+    assert found == {"inside.md"}

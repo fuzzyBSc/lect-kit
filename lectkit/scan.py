@@ -405,7 +405,9 @@ def scan(db: AudienceDB, reg: Register,
                     for rx in tried:
                         if rx.search(raw):
                             hit(rel, line, "term", {t}, "term:" + rx.pattern)
-            streams.setdefault(rel, []).extend((x, line) for x in w)
+            # A passage never crosses a table's cell border: the border breaks the run.
+            streams.setdefault(rel, []).extend(
+                (x, line) for x in _words(text.replace("|", f" {FORMAT_PLACEHOLDER} ")))
         for rel, stream in streams.items():
             for i in range(len(stream) - PASSAGE_WORDS + 1):
                 p = " ".join(x for x, _ in stream[i:i + PASSAGE_WORDS])

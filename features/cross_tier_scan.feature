@@ -272,3 +272,11 @@ Feature: Cross-tier scan of lower stores
     When fx-c runs the scan
     Then the scan matches the line with those shapes masked, and it is no finding
     But a plain "0930" on its own is still a finding, and so is "fxzone" beside a hash
+
+  @AC-cross_tier_scan-36
+  Scenario: A passage never runs across a table's cell borders
+    Given fx-c's material holds a table row "| fxvar | alpha beta gamma delta |"
+    And an fx-open line reads "fxvar alpha beta gamma delta"
+    When fx-c runs the scan
+    Then that line is not a passage finding, since the run joins two cells
+    But an fx-open line repeating five words from inside one fx-c cell is still a finding
